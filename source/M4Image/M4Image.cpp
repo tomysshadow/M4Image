@@ -75,7 +75,7 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
         freeBits(surface.image);
     };
 
-    mango::image::ImageDecodeStatus status = imageDecoder.decode(surface);
+    mango::image::ImageDecodeStatus status = imageDecoder.decode(surface, {nullptr, true, false});
 
     // status is false if decoding the image failed
     if (!status) {
