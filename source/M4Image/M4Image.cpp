@@ -75,7 +75,8 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
         freeBits(surface.image);
     };
 
-    mango::image::ImageDecodeStatus status = imageDecoder.decode(surface, {nullptr, true, false});
+    // uncomment the second argument to disabled multithreading
+    mango::image::ImageDecodeStatus status = imageDecoder.decode(surface/*, {nullptr, true, false}*/);
 
     // status is false if decoding the image failed
     if (!status) {
@@ -334,7 +335,7 @@ void unpremultiplyColors(M4Image::Color32* colorPointer, M4Image::Color32* endPo
 
 namespace M4Image {
     unsigned char* load(
-        const std::string &extension,
+        const char* extension,
         const unsigned char* address,
         size_t size,
         int &width,
@@ -342,6 +343,10 @@ namespace M4Image {
         size_t &stride,
         COLOR_FORMAT colorFormat
     ) {
+        if (!extension) {
+            return 0;
+        }
+
         if (!address) {
             return 0;
         }
@@ -370,7 +375,7 @@ namespace M4Image {
     }
 
     unsigned char* resize(
-        const std::string &extension,
+        const char* extension,
         const unsigned char* address,
         size_t size,
         int width,
@@ -378,6 +383,10 @@ namespace M4Image {
         size_t &stride,
         COLOR_FORMAT colorFormat
     ) {
+        if (!extension) {
+            return 0;
+        }
+
         if (!address) {
             return 0;
         }
@@ -555,6 +564,10 @@ namespace M4Image {
         stride = bitsStride;
         bitsScopeExit.dismiss();
         return bits;
+    }
+
+    void free(void* block) {
+        freeProc(block);
     }
 
     void setAllocator(MAllocProc _mallocProc, FreeProc _freeProc) {
