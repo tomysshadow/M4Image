@@ -253,7 +253,7 @@ bool setTransform(pixman_image_t* maskImage, const mango::image::Surface &surfac
 
 // aligned to nearest 64 bytes so it is on cache lines
 static bool channelUnpremultiplierCreated = false;
-__declspec(align(64)) static unsigned char CHANNEL_UNPREMULTIPLIER[65536] = {};
+__declspec(align(64)) static unsigned char CHANNEL_UNPREMULTIPLIER[USHRT_MAX + 1] = {};
 
 void createChannelUnpremultiplier() {
     if (channelUnpremultiplierCreated) {
