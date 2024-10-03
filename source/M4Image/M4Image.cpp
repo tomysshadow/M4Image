@@ -251,8 +251,6 @@ bool setTransform(pixman_image_t* maskImage, const mango::image::Surface &surfac
     return true;
 }
 
-static const size_t CHANNEL_SIZE = 8;
-
 // aligned to nearest 64 bytes so it is on cache lines
 static bool channelUnpremultiplierCreated = false;
 __declspec(align(64)) static unsigned char CHANNEL_UNPREMULTIPLIER[65536] = {};
@@ -269,14 +267,27 @@ void createChannelUnpremultiplier() {
 
     for (int channel = 0; channel <= UCHAR_MAX; channel++) {
         for (int alpha = 1; alpha <= UCHAR_MAX; alpha++) {
-            CHANNEL_UNPREMULTIPLIER[(channel << CHANNEL_SIZE) | alpha] = clampUCHAR(((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha);
+            CHANNEL_UNPREMULTIPLIER[(channel << CHAR_BIT) | alpha] = clampUCHAR(((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha);
         }
     }
 
+    // this function may get hit by multiple threads at once
+    // however, it's entirely deterministic, so it doesn't really matter
+    // the worst case scenario is that one thread hits this as
+    // another is just finishing
+    // but even in that case, it only costs the same time as processing a
+    // single 255 * 255 image the slow way, two times, at most
+    // which doesn't actually take very long, usually only 1 ms
+    // (and then processing larger images costs nothing, pennies, so it's extremely worth it)
+    // having a lock here would just require threads to wait about the
+    // same amount of time for the first to finish
+    // but would be a slowdown the other 99% of the time
+    // so it's better to just eat the cost of needing to potentially do this multiple times
+    // that said, it's important this is only set to true here at the end!
     channelUnpremultiplierCreated = true;
 }
 
-#define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER[((channel) << CHANNEL_SIZE) | (alpha)])
+#define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER[((channel) << CHAR_BIT) | (alpha)])
 
 unsigned char* convertImage(M4Image::Color32* colorPointer, M4Image::Color32* endPointer, bool unpremultiply) {
     const size_t DIVIDE_BY_TWO = 1;
