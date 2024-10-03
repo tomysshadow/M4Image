@@ -279,8 +279,6 @@ void createChannelUnpremultiplier() {
 #define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER[((channel) << CHANNEL_SIZE) | (alpha)])
 
 unsigned char* convertImage(M4Image::Color32* colorPointer, M4Image::Color32* endPointer, bool unpremultiply) {
-    createChannelUnpremultiplier();
-
     const size_t DIVIDE_BY_TWO = 1;
     const size_t CHANNEL_LUMINANCE = 2;
     const size_t CHANNEL_ALPHA = 3;
@@ -294,6 +292,8 @@ unsigned char* convertImage(M4Image::Color32* colorPointer, M4Image::Color32* en
     M4Image::Color16* luminancePointer = (M4Image::Color16*)bits;
 
     if (unpremultiply) {
+        createChannelUnpremultiplier();
+        
         while (colorPointer != endPointer) {
             unsigned char &alpha = luminancePointer->channels[1];
             alpha = colorPointer->channels[CHANNEL_ALPHA];
@@ -564,6 +564,10 @@ namespace M4Image {
         stride = bitsStride;
         bitsScopeExit.dismiss();
         return bits;
+    }
+
+    void* malloc(size_t size) {
+        return mallocProc(size);
     }
 
     void free(void* block) {
