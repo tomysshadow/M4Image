@@ -285,6 +285,10 @@ unsigned char* convertImage(M4Image::Color32* colorPointer, M4Image::Color32* en
 
     unsigned char* bits = (unsigned char*)mallocProc(((size_t)endPointer - (size_t)colorPointer) >> DIVIDE_BY_TWO);
 
+    if (!bits) {
+        return 0;
+    }
+
     MAKE_SCOPE_EXIT(bitsScopeExit) {
         freeBits(bits);
     };
