@@ -364,7 +364,7 @@ void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t he
     }
 }
 
-static const mango::image::Format IMAGE_HEADER_FORMAT_RGBA = mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 8);
+static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = COLOR_FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
 
 namespace M4Image {
     unsigned char* load(
