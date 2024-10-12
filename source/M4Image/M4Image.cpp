@@ -432,9 +432,9 @@ namespace M4Image {
             freeBits(surface.image);
         };
 
-        // allocate the memory that will get the resized image
         const size_t BYTES = 3;
 
+        // bits MUST be a seperate buffer to surface.image (yes, even for upscaling)
         // if we aren't converting, we expect to get the destination image in the user requested stride
         // if we are converting, we expect it to be based on the format, for convenience's sake
         size_t bitsStride = (stride && !convert) ? stride : (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width;
