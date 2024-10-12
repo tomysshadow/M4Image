@@ -43,17 +43,18 @@ namespace M4Image {
         COLOR_FORMAT colorFormat
     );
 
-    /*
-    M4IMAGE_API void save(
+    M4IMAGE_API unsigned char* M4IMAGE_CALL save(
         const char* extension,
-        const unsigned char* address,
-        size_t size,
         int width,
         int height,
         size_t stride,
-        COLOR_FORMAT colorFormat
+        COLOR_FORMAT colorFormat,
+        unsigned char* image,
+        size_t &size,
+        float quality = 0.90f
     );
 
+    /*
     M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
         const unsigned char* address,
         size_t size,

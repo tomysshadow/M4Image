@@ -4,6 +4,7 @@
 
 #include <mango/image/surface.hpp>
 #include <mango/image/decoder.hpp>
+#include <mango/core/buffer.hpp>
 #include <pixman.h>
 
 static M4Image::MAllocProc mallocProc = malloc;
@@ -78,6 +79,33 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
     }
 
     surfaceImageScopeExit.dismiss();
+}
+
+unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const char* extension, size_t &size, float quality = 0.90f) {
+    mango::MemoryStream memoryStream = mango::MemoryStream();
+    mango::image::ImageEncodeStatus status = surface.save(memoryStream, extension, { {}, {}, quality });
+
+    if (!status) {
+        MANGO_EXCEPTION("[WARNING] {}", status.info);
+    }
+
+    size = memoryStream.size();
+    unsigned char* bits = (unsigned char*)mallocProc(size);
+
+    if (!bits) {
+        return 0;
+    }
+
+    MAKE_SCOPE_EXIT(bitsScopeExit) {
+        freeBits(bits);
+    };
+
+    if (memcpy_s(bits, size, memoryStream, size)) {
+        return 0;
+    }
+
+    bitsScopeExit.dismiss();
+    return bits;
 }
 
 typedef std::map<M4Image::COLOR_FORMAT, pixman_format_code_t> PIXMAN_FORMAT_CODE_MAP;
@@ -398,13 +426,13 @@ namespace M4Image {
             colorFormat = getResizeColorFormat(imageHeader.format == IMAGE_HEADER_FORMAT_RGBA, colorFormat, sourceFormat, destinationFormat);
         }
 
-        mango::image::Surface surface;
+        mango::image::Surface surface = mango::image::Surface();
 
         try {
             setFormat(surface.format, colorFormat);
-            surface.stride = (resize || !stride) ? (size_t)imageHeader.width * (size_t)surface.format.bytes() : stride;
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
+            surface.stride = (stride && !resize) ? stride : (size_t)imageHeader.width * (size_t)surface.format.bytes();
             decodeSurfaceImage(surface, imageDecoder);
         } catch (...) {
             freeBits(surface.image);
@@ -430,7 +458,7 @@ namespace M4Image {
 
         // if we aren't converting, we expect to get the destination image in the user requested stride
         // if we are converting, we expect it to be based on the format, for convenience's sake
-        size_t bitsStride = (convert || !stride) ? (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width : stride;
+        size_t bitsStride = (stride && !convert) ? stride : (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width;
         unsigned char* bits = (unsigned char*)mallocProc(bitsStride * (size_t)height);
 
         if (!bits) {
@@ -549,6 +577,52 @@ namespace M4Image {
         }
 
         bitsScopeExit.dismiss();
+        return bits;
+    }
+
+    M4IMAGE_API unsigned char* M4IMAGE_CALL save(
+        const char* extension,
+        int width,
+        int height,
+        size_t stride,
+        COLOR_FORMAT colorFormat,
+        unsigned char* image,
+        size_t &size,
+        float quality
+    ) {
+        MAKE_SCOPE_EXIT(sizeScopeExit) {
+            size = 0;
+        };
+
+        if (!extension) {
+            return 0;
+        }
+
+        if (!image) {
+            return 0;
+        }
+
+        if (!width || !height) {
+            return 0;
+        }
+
+        mango::image::Surface surface = mango::image::Surface();
+        unsigned char* bits = 0;
+
+        try {
+            setFormat(surface.format, colorFormat);
+            surface.width = width;
+            surface.height = height;
+            surface.stride = stride ? stride : (size_t)width * (size_t)surface.format.bytes();
+            surface.image = image;
+            bits = encodeSurfaceImage(surface, extension, size, quality);
+        } catch (...) {
+            return 0;
+        }
+
+        if (bits) {
+            sizeScopeExit.dismiss();
+        }
         return bits;
     }
 
