@@ -49,7 +49,7 @@ namespace M4Image {
         int height,
         size_t stride,
         COLOR_FORMAT colorFormat,
-        unsigned char* image,
+        const void* image,
         size_t &size,
         float quality = 0.90f
     );

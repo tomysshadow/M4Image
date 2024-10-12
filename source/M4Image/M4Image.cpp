@@ -21,42 +21,21 @@ void freeBits(unsigned char* &bits) {
     bits = 0;
 }
 
-void setFormat(mango::image::Format &format, M4Image::COLOR_FORMAT value) {
-    switch (value) {
-        case M4Image::COLOR_FORMAT::RGBA32:
-        format = mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 8);
-        return;
-        case M4Image::COLOR_FORMAT::RGBX32:
-        format = mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 0);
-        return;
-        case M4Image::COLOR_FORMAT::BGRA32:
-        format = mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 8);
-        return;
-        case M4Image::COLOR_FORMAT::BGRX32:
-        format = mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 0);
-        return;
-        case M4Image::COLOR_FORMAT::RGB24:
-        format = mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::RGB, 8, 8, 8, 0);
-        return;
-        case M4Image::COLOR_FORMAT::BGR24:
-        format = mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::BGR, 8, 8, 8, 0);
-        return;
-        case M4Image::COLOR_FORMAT::AL16:
-        format = mango::image::LuminanceFormat(16, mango::image::Format::UNORM, 8, 8);
-        return;
-        case M4Image::COLOR_FORMAT::A8:
-        format = mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0);
-        return;
-        case M4Image::COLOR_FORMAT::L8:
-        format = mango::image::LuminanceFormat(8, mango::image::Format::UNORM, 8, 0);
-        return;
-        case M4Image::COLOR_FORMAT::XXXL32:
-        format = mango::image::LuminanceFormat(32, 0xFF000000, 0x00000000);
-        return;
-        case M4Image::COLOR_FORMAT::XXLA32:
-        format = mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000);
-    }
-}
+typedef std::map<M4Image::COLOR_FORMAT, mango::image::Format> FORMAT_MAP;
+
+static const FORMAT_MAP COLOR_FORMAT_MAP = {
+    {M4Image::COLOR_FORMAT::RGBA32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 8)},
+    {M4Image::COLOR_FORMAT::RGBX32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 0)},
+    {M4Image::COLOR_FORMAT::BGRA32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 8)},
+    {M4Image::COLOR_FORMAT::BGRX32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 0)},
+    {M4Image::COLOR_FORMAT::RGB24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::RGB, 8, 8, 8, 0)},
+    {M4Image::COLOR_FORMAT::BGR24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::BGR, 8, 8, 8, 0)},
+    {M4Image::COLOR_FORMAT::AL16, mango::image::LuminanceFormat(16, mango::image::Format::UNORM, 8, 8)},
+    {M4Image::COLOR_FORMAT::A8, mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0)},
+    {M4Image::COLOR_FORMAT::L8, mango::image::LuminanceFormat(8, mango::image::Format::UNORM, 8, 0)},
+    {M4Image::COLOR_FORMAT::XXXL32, mango::image::LuminanceFormat(32, 0xFF000000, 0x00000000)},
+    {M4Image::COLOR_FORMAT::XXLA32, mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000)},
+};
 
 void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder) {
     // allocate memory for the image
@@ -429,7 +408,7 @@ namespace M4Image {
         mango::image::Surface surface = mango::image::Surface();
 
         try {
-            setFormat(surface.format, colorFormat);
+            surface.format = COLOR_FORMAT_MAP.at(colorFormat);
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
             surface.stride = (stride && !resize) ? stride : (size_t)imageHeader.width * (size_t)surface.format.bytes();
@@ -586,7 +565,7 @@ namespace M4Image {
         int height,
         size_t stride,
         COLOR_FORMAT colorFormat,
-        unsigned char* image,
+        const void* image,
         size_t &size,
         float quality
     ) {
@@ -598,24 +577,26 @@ namespace M4Image {
             return 0;
         }
 
-        if (!image) {
-            return 0;
-        }
-
         if (!width || !height) {
             return 0;
         }
 
-        mango::image::Surface surface = mango::image::Surface();
+        if (!image) {
+            return 0;
+        }
+
         unsigned char* bits = 0;
 
         try {
-            setFormat(surface.format, colorFormat);
-            surface.width = width;
-            surface.height = height;
-            surface.stride = stride ? stride : (size_t)width * (size_t)surface.format.bytes();
-            surface.image = image;
-            bits = encodeSurfaceImage(surface, extension, size, quality);
+            const mango::image::Format &FORMAT = COLOR_FORMAT_MAP.at(colorFormat);
+
+            const mango::image::Surface SURFACE = mango::image::Surface(
+                width, height,
+                FORMAT, stride ? stride : (size_t)width * (size_t)FORMAT.bytes(),
+                image
+            );
+
+            bits = encodeSurfaceImage(SURFACE, extension, size, quality);
         } catch (...) {
             return 0;
         }
