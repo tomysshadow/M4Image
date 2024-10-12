@@ -57,12 +57,6 @@ void setFormat(mango::image::Format &format, M4Image::COLOR_FORMAT value) {
     }
 }
 
-void setSurfaceImageHeader(mango::image::Surface &surface, const mango::image::ImageHeader &imageHeader) {
-    surface.stride = (size_t)imageHeader.width * (size_t)surface.format.bytes();
-    surface.width = imageHeader.width;
-    surface.height = imageHeader.height;
-}
-
 void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder) {
     // allocate memory for the image
     surface.image = (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
@@ -85,8 +79,6 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
 
     surfaceImageScopeExit.dismiss();
 }
-
-static const mango::image::Format IMAGE_HEADER_FORMAT_RGBA = mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 8);
 
 typedef std::map<M4Image::COLOR_FORMAT, pixman_format_code_t> PIXMAN_FORMAT_CODE_MAP;
 
@@ -117,7 +109,7 @@ static const PIXMAN_FORMAT_CODE_MAP BGRA_PIXMAN_FORMAT_CODE_MAP = {
 // this makes the constants a little confusing
 // from here on out, I'll be using little endian (like mango)
 M4Image::COLOR_FORMAT getResizeColorFormat(
-    const mango::image::ImageHeader &imageHeader,
+    bool rgba,
     M4Image::COLOR_FORMAT colorFormat,
     pixman_format_code_t &sourceFormat,
     pixman_format_code_t &destinationFormat
@@ -173,7 +165,7 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
     // as an optimization, we allow mango to import in RGBA
     // RGBA and BGRA are the only import formats allowed
     // (A must come last, and these are the only formats Pixman supports where A is last)
-    if (imageHeader.format == IMAGE_HEADER_FORMAT_RGBA) {
+    if (rgba) {
         // for all other colour formats, we start with 32-bit colour, converting down as necessary
         // Pixman operates the fastest in BGRA mode, but since both operations
         // that we are doing apply the same to all colour channels (premultiplying and interpolating)
@@ -289,12 +281,11 @@ void createChannelUnpremultiplier() {
 
 #define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER[((channel) << CHAR_BIT) | (alpha)])
 
-unsigned char* convertImage(M4Image::Color32* colorPointer, M4Image::Color32* endPointer, bool unpremultiply) {
-    const size_t DIVIDE_BY_TWO = 1;
+unsigned char* convertImage(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool unpremultiply) {
     const size_t CHANNEL_LUMINANCE = 2;
     const size_t CHANNEL_ALPHA = 3;
 
-    unsigned char* bits = (unsigned char*)mallocProc(((size_t)endPointer - (size_t)colorPointer) >> DIVIDE_BY_TWO);
+    unsigned char* bits = (unsigned char*)mallocProc((size_t)height * stride);
 
     if (!bits) {
         return 0;
@@ -304,25 +295,36 @@ unsigned char* convertImage(M4Image::Color32* colorPointer, M4Image::Color32* en
         freeBits(bits);
     };
 
-    M4Image::Color16* luminancePointer = (M4Image::Color16*)bits;
+    unsigned char* rowPointer = bits;
+    M4Image::Color16* luminancePointer = (M4Image::Color16*)rowPointer;
 
     if (unpremultiply) {
         createChannelUnpremultiplier();
-        
-        while (colorPointer != endPointer) {
-            unsigned char &alpha = luminancePointer->channels[1];
-            alpha = colorPointer->channels[CHANNEL_ALPHA];
 
-            if (alpha) {
-                luminancePointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[CHANNEL_LUMINANCE], alpha);
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                unsigned char &alpha = luminancePointer->channels[1];
+                alpha = colorPointer->channels[CHANNEL_ALPHA];
+
+                if (alpha) {
+                    luminancePointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[CHANNEL_LUMINANCE], alpha);
+                }
+
+                colorPointer++;
+                luminancePointer++;
             }
 
-            colorPointer++;
-            luminancePointer++;
+            rowPointer += stride;
+            luminancePointer = (M4Image::Color16*)rowPointer;
         }
     } else {
-        while (colorPointer != endPointer) {
-            *luminancePointer++ = *(M4Image::Color16*)&colorPointer++->channels[CHANNEL_LUMINANCE];
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                *luminancePointer++ = *(M4Image::Color16*)&colorPointer++->channels[CHANNEL_LUMINANCE];
+            }
+
+            rowPointer += stride;
+            luminancePointer = (M4Image::Color16*)rowPointer;
         }
     }
 
@@ -330,72 +332,41 @@ unsigned char* convertImage(M4Image::Color32* colorPointer, M4Image::Color32* en
     return bits;
 }
 
-void unpremultiplyColors(M4Image::Color32* colorPointer, M4Image::Color32* endPointer) {
+void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride) {
     createChannelUnpremultiplier();
 
     const size_t CHANNEL_ALPHA = 3;
 
-    while (colorPointer != endPointer) {
-        const unsigned char &ALPHA = colorPointer->channels[CHANNEL_ALPHA];
+    unsigned char* rowPointer = (unsigned char*)colorPointer;
 
-        if (ALPHA) {
-            colorPointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[0], ALPHA);
-            colorPointer->channels[1] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[1], ALPHA);
-            colorPointer->channels[2] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[2], ALPHA);
+    for (size_t i = 0; i < height; i++) {
+        for (size_t j = 0; j < width; j++) {
+            const unsigned char &ALPHA = colorPointer->channels[CHANNEL_ALPHA];
+
+            if (ALPHA) {
+                colorPointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[0], ALPHA);
+                colorPointer->channels[1] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[1], ALPHA);
+                colorPointer->channels[2] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[2], ALPHA);
+            }
+
+            colorPointer++;
         }
 
-        colorPointer++;
+        rowPointer += stride;
+        colorPointer = (M4Image::Color32*)rowPointer;
     }
 }
+
+static const mango::image::Format IMAGE_HEADER_FORMAT_RGBA = mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 8);
 
 namespace M4Image {
     unsigned char* load(
         const char* extension,
         const unsigned char* address,
         size_t size,
-        int &width,
-        int &height,
-        size_t &stride,
-        COLOR_FORMAT colorFormat
-    ) {
-        if (!extension) {
-            return 0;
-        }
-
-        if (!address) {
-            return 0;
-        }
-
-        mango::image::ImageDecoder imageDecoder(mango::ConstMemory(address, size), extension);
-
-        if (!imageDecoder.isDecoder()) {
-            return 0;
-        }
-
-        mango::image::Surface surface;
-
-        try {
-            setFormat(surface.format, colorFormat);
-            setSurfaceImageHeader(surface, imageDecoder.header());
-            decodeSurfaceImage(surface, imageDecoder);
-
-            width = surface.width;
-            height = surface.height;
-            stride = surface.stride;
-        } catch (...) {
-            freeBits(surface.image);
-            return 0;
-        }
-        return surface.image;
-    }
-
-    unsigned char* resize(
-        const char* extension,
-        const unsigned char* address,
-        size_t size,
         int width,
         int height,
-        size_t &stride,
+        size_t stride,
         COLOR_FORMAT colorFormat
     ) {
         if (!extension) {
@@ -424,14 +395,16 @@ namespace M4Image {
         pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
 
         if (resize) {
-            colorFormat = getResizeColorFormat(imageHeader, colorFormat, sourceFormat, destinationFormat);
+            colorFormat = getResizeColorFormat(imageHeader.format == IMAGE_HEADER_FORMAT_RGBA, colorFormat, sourceFormat, destinationFormat);
         }
 
         mango::image::Surface surface;
 
         try {
             setFormat(surface.format, colorFormat);
-            setSurfaceImageHeader(surface, imageHeader);
+            surface.stride = resize ? (size_t)imageHeader.width * (size_t)surface.format.bytes() : stride;
+            surface.width = imageHeader.width;
+            surface.height = imageHeader.height;
             decodeSurfaceImage(surface, imageDecoder);
         } catch (...) {
             freeBits(surface.image);
@@ -444,7 +417,6 @@ namespace M4Image {
 
         // if we don't need to resize the image (width and height matches) then job done
         if (!resize) {
-            stride = surface.stride;
             return surface.image;
         }
 
@@ -456,7 +428,9 @@ namespace M4Image {
         // allocate the memory that will get the resized image
         const size_t BYTES = 3;
 
-        size_t bitsStride = (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width;
+        // if we aren't converting, we expect to get the destination image in the user requested stride
+        // if we are converting, we expect it to be based on the format, for convenience's sake
+        size_t bitsStride = convert ? (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width : stride;
         size_t bitsSize = bitsStride * (size_t)height;
         unsigned char* bits = (unsigned char*)mallocProc(bitsSize);
 
@@ -556,7 +530,7 @@ namespace M4Image {
         bool unpremultiply = premultiply || imageHeader.premultiplied;
 
         if (convert) {
-            unsigned char* convertedBits = convertImage(colorPointer, endPointer, unpremultiply);
+            unsigned char* convertedBits = convertImage(colorPointer, width, height, stride, unpremultiply);
 
             if (!convertedBits) {
                 return 0;
@@ -569,14 +543,12 @@ namespace M4Image {
             freeBits(bits);
             bits = convertedBits;
 
-            stride = bitsStride >> DIVIDE_BY_TWO;
             bitsScopeExit.dismiss();
             return bits;
         } else if (unpremultiply) {
-            unpremultiplyColors(colorPointer, endPointer);
+            unpremultiplyColors(colorPointer, width, height, stride);
         }
 
-        stride = bitsStride;
         bitsScopeExit.dismiss();
         return bits;
     }
@@ -587,6 +559,49 @@ namespace M4Image {
 
     void free(void* block) {
         freeProc(block);
+    }
+
+    bool getInfo(
+        const char* extension,
+        const unsigned char* address,
+        size_t size,
+        int* widthPointer,
+        int* heightPointer,
+        uint32_t* bitsPointer,
+        bool* alphaPointer
+    ) {
+        if (!extension) {
+            return false;
+        }
+
+        if (!address) {
+            return false;
+        }
+
+        mango::image::ImageDecoder imageDecoder(mango::ConstMemory(address, size), extension);
+
+        if (!imageDecoder.isDecoder()) {
+            return false;
+        }
+
+        mango::image::ImageHeader imageHeader = imageDecoder.header();
+
+        if (widthPointer) {
+            *widthPointer = imageHeader.width;
+        }
+
+        if (heightPointer) {
+            *heightPointer = imageHeader.height;
+        }
+
+        if (bitsPointer) {
+            *bitsPointer = imageHeader.format.bits;
+        }
+
+        if (alphaPointer) {
+            *alphaPointer = imageHeader.format.isAlpha();
+        }
+        return true;
     }
 
     void setAllocator(MAllocProc _mallocProc, FreeProc _freeProc) {
