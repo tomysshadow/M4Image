@@ -21,9 +21,9 @@ void freeBits(unsigned char* &bits) {
     bits = 0;
 }
 
-typedef std::map<M4Image::COLOR_FORMAT, mango::image::Format> FORMAT_MAP;
+typedef std::map<M4Image::COLOR_FORMAT, mango::image::Format> COLOR_FORMAT_MAP;
 
-static const FORMAT_MAP COLOR_FORMAT_MAP = {
+static const COLOR_FORMAT_MAP FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::RGBA32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 8)},
     {M4Image::COLOR_FORMAT::RGBX32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 0)},
     {M4Image::COLOR_FORMAT::BGRA32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 8)},
@@ -364,7 +364,7 @@ void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t he
     }
 }
 
-static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = COLOR_FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
+static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
 
 namespace M4Image {
     unsigned char* load(
@@ -408,7 +408,7 @@ namespace M4Image {
         mango::image::Surface surface = mango::image::Surface();
 
         try {
-            surface.format = COLOR_FORMAT_MAP.at(colorFormat);
+            surface.format = FORMAT_MAP.at(colorFormat);
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
             surface.stride = (stride && !resize) ? stride : (size_t)imageHeader.width * (size_t)surface.format.bytes();
@@ -533,12 +533,10 @@ namespace M4Image {
 
         // as a final step we need to unpremultiply
         // as also convert down to 16-bit colour as necessary
-        Color32* colorPointer = (Color32*)bits;
-
         if (convert) {
             const size_t COLOR16_SIZE = sizeof(Color16);
 
-            unsigned char* convertedBits = convertImage(colorPointer, width, height, stride ? stride : (size_t)width * COLOR16_SIZE, unpremultiply);
+            unsigned char* convertedBits = convertImage((Color32*)bits, width, height, stride ? stride : (size_t)width * COLOR16_SIZE, unpremultiply);
 
             if (!convertedBits) {
                 return 0;
@@ -548,11 +546,8 @@ namespace M4Image {
             // that we return zero, because bits will become set to zero
             freeBits(bits);
             bits = convertedBits;
-
-            bitsScopeExit.dismiss();
-            return bits;
         } else if (unpremultiply) {
-            unpremultiplyColors(colorPointer, width, height, bitsStride);
+            unpremultiplyColors((Color32*)bits, width, height, bitsStride);
         }
 
         bitsScopeExit.dismiss();
@@ -588,7 +583,7 @@ namespace M4Image {
         unsigned char* bits = 0;
 
         try {
-            const mango::image::Format &FORMAT = COLOR_FORMAT_MAP.at(colorFormat);
+            const mango::image::Format &FORMAT = FORMAT_MAP.at(colorFormat);
 
             const mango::image::Surface SURFACE = mango::image::Surface(
                 width, height,
