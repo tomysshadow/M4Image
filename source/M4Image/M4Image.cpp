@@ -402,7 +402,7 @@ namespace M4Image {
 
         try {
             setFormat(surface.format, colorFormat);
-            surface.stride = resize ? (size_t)imageHeader.width * (size_t)surface.format.bytes() : stride;
+            surface.stride = (resize || !stride) ? (size_t)imageHeader.width * (size_t)surface.format.bytes() : stride;
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
             decodeSurfaceImage(surface, imageDecoder);
@@ -430,9 +430,8 @@ namespace M4Image {
 
         // if we aren't converting, we expect to get the destination image in the user requested stride
         // if we are converting, we expect it to be based on the format, for convenience's sake
-        size_t bitsStride = convert ? (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width : stride;
-        size_t bitsSize = bitsStride * (size_t)height;
-        unsigned char* bits = (unsigned char*)mallocProc(bitsSize);
+        size_t bitsStride = (convert || !stride) ? (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width : stride;
+        unsigned char* bits = (unsigned char*)mallocProc(bitsStride * (size_t)height);
 
         if (!bits) {
             return 0;
@@ -484,14 +483,16 @@ namespace M4Image {
         // -the destination format has alpha (because otherwise the colours will be unaffected by alpha)
         // -the image has alpha (that is, we aren't creating a new alpha channel for an actually opaque image)
         // we don't care about if the surface has alpha here, because it always should if its relevant
-        bool premultiply = sourceFormat == PIXMAN_x8r8g8b8
+        bool unpremultiply = sourceFormat == PIXMAN_x8r8g8b8
             && PIXMAN_FORMAT_COLOR(destinationFormat)
             && PIXMAN_FORMAT_A(destinationFormat)
             && imageHeader.format.isAlpha();
 
         // we also don't premultiply if the original image was already premultiplied
         // (this is checked seperately, though, so we know whether to unpremultiply later)
-        pixman_image_t* maskImage = (premultiply && !imageHeader.premultiplied)
+        // as of right now, we only unpremultiply if the destination format actually has alpha
+        // (that is, if the image is already premultiplied, we don't unpremultiply it for RGB24)
+        pixman_image_t* maskImage = (unpremultiply && !imageHeader.premultiplied)
             ? premultiplyMaskImage(surface, sourceImage)
             : sourceImage;
 
@@ -526,17 +527,15 @@ namespace M4Image {
         // as a final step we need to unpremultiply
         // as also convert down to 16-bit colour as necessary
         Color32* colorPointer = (Color32*)bits;
-        Color32* endPointer = (Color32*)(bits + bitsSize);
-        bool unpremultiply = premultiply || imageHeader.premultiplied;
 
         if (convert) {
-            unsigned char* convertedBits = convertImage(colorPointer, width, height, stride, unpremultiply);
+            const size_t COLOR16_SIZE = sizeof(Color16);
+
+            unsigned char* convertedBits = convertImage(colorPointer, width, height, stride ? stride : (size_t)width * COLOR16_SIZE, unpremultiply);
 
             if (!convertedBits) {
                 return 0;
             }
-
-            const size_t DIVIDE_BY_TWO = 1;
 
             // this is necessary so that, if an error occurs with unreffing the images
             // that we return zero, because bits will become set to zero
@@ -546,7 +545,7 @@ namespace M4Image {
             bitsScopeExit.dismiss();
             return bits;
         } else if (unpremultiply) {
-            unpremultiplyColors(colorPointer, width, height, stride);
+            unpremultiplyColors(colorPointer, width, height, bitsStride);
         }
 
         bitsScopeExit.dismiss();
