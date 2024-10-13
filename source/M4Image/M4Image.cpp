@@ -395,6 +395,12 @@ namespace M4Image {
         }
 
         mango::image::ImageHeader imageHeader = imageDecoder.header();
+
+        // don't care, not implemented
+        if (imageHeader.premultiplied) {
+            return 0;
+        }
+
         bool resize = width != imageHeader.width || height != imageHeader.height;
         bool convert = colorFormat == COLOR_FORMAT::AL16;
 
@@ -484,35 +490,20 @@ namespace M4Image {
             }
         };
 
-        // these are only ever set to true if the image is not opaque
-        bool premultiplied = false;
-        bool unpremultiply = false;
-
-        // the image is not opaque if:
+        // we should only care about premultiplying if:
         // -the source format is PIXMAN_x8r8g8b8 (indicating we are meant to use it with maskImage)
+        // -the destination format has alpha (because otherwise the colours will be unaffected by alpha)
+        // -the destination format has RGB channels (because otherwise the colour data will be thrown out anyway)
         // -the image format is alpha (so we aren't creating an alpha channel for an opaque image)
         // we don't care about if the surface has alpha here
         // the source format will be PIXMAN_x8r8g8b8 if it does/it matters
-        if (sourceFormat == PIXMAN_x8r8g8b8 && imageHeader.format.isAlpha()) {
-            // we should consider the image to be already premultiplied
-            // if the image is premultiplied (so we need to undo this to convert to e.g. RGB24)
-            premultiplied = imageHeader.premultiplied;
-
-            // we should only care about premultiplying if:
-            // -the destination format has alpha (because otherwise the colours will be unaffected by alpha)
-            // -the destination format has RGB channels (because otherwise the colour data will be thrown out anyway)
-            unpremultiply = PIXMAN_FORMAT_A(destinationFormat)
-                && PIXMAN_FORMAT_COLOR(destinationFormat);
-        }
-
-        // if the colours are premultiplied, and we are not premultiplying ourselves
-        // then unpremultiply them now, in advance, while they're still in a 32-bit format
-        if (premultiplied && !unpremultiply) {
-            unpremultiplyColors((Color32*)surface.image, surface.width, surface.height, surface.stride);
-        }
+        bool unpremultiply = sourceFormat == PIXMAN_x8r8g8b8
+        && PIXMAN_FORMAT_A(destinationFormat)
+        && PIXMAN_FORMAT_COLOR(destinationFormat)
+        && imageHeader.format.isAlpha();
 
         // premultiply, only if we'll undo it later, and if the original image wasn't already premultiplied
-        pixman_image_t* maskImage = (unpremultiply && !premultiplied)
+        pixman_image_t* maskImage = unpremultiply
             ? premultiplyMaskImage(surface, sourceImage)
             : sourceImage;
 
