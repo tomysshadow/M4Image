@@ -71,22 +71,24 @@ mango::u8* AllocatorStream::acquire() {
 }
 
 void AllocatorStream::reserve(mango::u64 offset) {
-    // find power of two greater than or equal to the offset
     mango::u64 capacity = state.capacity;
 
     if (offset <= capacity) {
         return;
     }
 
-    // initial capacity is 128 bytes
-    // written as 64 here because we will immediately multiply this by two
-    // this number chosen because it is probably the smallest reasonable size for an image
-    // (it is the exact size of a 2x2 pixel white PNG)
-    // must be a power of two
-    const mango::u64 CAPACITY_MIN = 64;
+    if (!capacity) {
+        // initial capacity is 128 bytes
+        // written as 64 here because we will immediately multiply this by two
+        // this number chosen because it is probably the smallest reasonable size for an image
+        // (it is the exact size of a 2x2 pixel white PNG)
+        // must be a power of two
+        const mango::u64 INITIAL_CAPACITY = 64;
 
-    capacity = __max(capacity, CAPACITY_MIN);
+        capacity = INITIAL_CAPACITY;
+    }
 
+    // find power of two greater than or equal to the offset
     do {
         capacity *= 2;
     } while (offset > capacity);
