@@ -26,15 +26,16 @@ void freeSafe(unsigned char* &block) {
 // this is here instead of in the header so that it's private to this translation unit
 class AllocatorStream : public mango::Stream {
     private:
-    mango::u64 m_capacity = 0;
-    mango::u64 m_size = 0;
-    mango::u64 m_offset = 0;
-    mango::u8* m_data = 0;
+    struct State {
+        mango::u64 capacity = 0;
+        mango::u64 size = 0;
+        mango::u64 offset = 0;
+        mango::u8* data = 0;
+    };
 
-    void allocate();
+    State state = {};
 
     public:
-    AllocatorStream();
     ~AllocatorStream();
     mango::u64 capacity() const;
     mango::u64 size() const;
@@ -46,116 +47,106 @@ class AllocatorStream : public mango::Stream {
     void write(const void* data, mango::u64 size);
 };
 
-void AllocatorStream::allocate() {
-    // initial capacity is 128 bytes
-    // because it is probably the smallest reasonable size for an image
-    // (it is the exact size of a 2x2 pixel white PNG)
-    // must be a power of two
-    const mango::u64 INITIAL_CAPACITY = 128;
-
-    m_data = (mango::u8*)mallocProc(INITIAL_CAPACITY);
-
-    if (!m_data) {
-        MANGO_EXCEPTION("[AllocatorStream] Failed to allocate memory.");
-    }
-
-    m_capacity = INITIAL_CAPACITY;
-}
-
-AllocatorStream::AllocatorStream() {
-    allocate();
-}
-
 AllocatorStream::~AllocatorStream() {
-    freeSafe(m_data);
+    freeSafe(state.data);
 }
 
 mango::u64 AllocatorStream::capacity() const {
-    return m_capacity;
+    return state.capacity;
 }
 
 mango::u64 AllocatorStream::size() const {
-    return m_size;
+    return state.size;
 }
 
 mango::u64 AllocatorStream::offset() const {
-    return m_offset;
+    return state.offset;
 }
 
 mango::u8* AllocatorStream::acquire() {
-    mango::u8* result = m_data;
-
-    MAKE_SCOPE_EXIT(resultScopeExit) {
-        freeSafe(result);
-    };
-
-    allocate();
-
-    resultScopeExit.dismiss();
-    return result;
+    mango::u8* data = state.data;
+    state = {};
+    return data;
 }
 
 void AllocatorStream::reserve(mango::u64 offset) {
     // find power of two greater than or equal to the offset
-    mango::u64 capacity = m_capacity;
+    mango::u64 capacity = state.capacity;
 
     if (offset <= capacity) {
         return;
     }
 
+    // initial capacity is 128 bytes
+    // written as 64 here because we will immediately multiply this by two
+    // this number chosen because it is probably the smallest reasonable size for an image
+    // (it is the exact size of a 2x2 pixel white PNG)
+    // must be a power of two
+    const mango::u64 CAPACITY_MIN = 64;
+
+    capacity = __max(capacity, CAPACITY_MIN);
+
     do {
         capacity *= 2;
     } while (offset > capacity);
 
-    m_data = (mango::u8*)reallocProc(m_data, capacity);
+    state.data = (mango::u8*)reallocProc(state.data, capacity);
 
-    if (!m_data) {
+    if (!state.data) {
         MANGO_EXCEPTION("[AllocatorStream] Failed to reallocate memory.");
     }
 
-    m_capacity = capacity;
+    state.capacity = capacity;
 }
 
 void AllocatorStream::seek(mango::s64 distance, SeekMode mode) {
     switch (mode) {
         case BEGIN:
-        m_offset = distance;
+        state.offset = distance;
         break;
         case CURRENT:
-        m_offset += distance;
+        state.offset += distance;
         break;
         case END:
-        m_offset = m_size - distance;
+        state.offset = state.size - distance;
     }
 }
 
 void AllocatorStream::read(void* dest, mango::u64 size) {
-    mango::u64 offset = m_offset + size;
+    if (!size) {
+        return;
+    }
+
+    mango::u64 offset = state.offset + size;
 
     // ensure we didn't overflow
-    if (offset < m_offset) {
+    if (offset < state.offset) {
         MANGO_EXCEPTION("[AllocatorStream] Size too large.");
     }
 
     // ensure we don't read past the end
-    if (offset > m_size) {
+    if (offset > state.size) {
         MANGO_EXCEPTION("[AllocatorStream] Reading past end of data.");
     }
 
     // we have verified that size is less than the size of the data
     // so it is safe to use as the source size
-    if (memcpy_s(dest, size, m_data + m_offset, size)) {
+    if (memcpy_s(dest, size, state.data + state.offset, size)) {
         MANGO_EXCEPTION("[AllocatorStream] Failed to copy memory.");
     }
 
-    m_offset = offset;
+    state.offset = offset;
 }
 
 void AllocatorStream::write(const void* data, mango::u64 size) {
-    mango::u64 offset = m_offset + size;
+    if (!size) {
+        return;
+    }
+
+    mango::u64 offset = state.offset + size;
 
     // ensure we didn't overflow
-    if (offset < m_offset) {
+    if (offset < state.offset) {
         MANGO_EXCEPTION("[AllocatorStream] Size too large.");
     }
 
@@ -163,20 +154,20 @@ void AllocatorStream::write(const void* data, mango::u64 size) {
     reserve(offset);
 
     // zero seeked over data
-    if (m_offset > m_size) {
-        memset(m_data + m_size, 0, m_offset - m_size);
+    if (state.offset > state.size) {
+        memset(state.data + state.size, 0, state.offset - state.size);
     }
 
-    if (memcpy_s(m_data + m_offset, m_capacity - m_offset, data, size)) {
+    if (memcpy_s(state.data + state.offset, state.capacity - state.offset, data, size)) {
         MANGO_EXCEPTION("[AllocatorStream] Failed to copy memory.");
     }
 
     // set the size
-    if (offset > m_size) {
-        m_size = offset;
+    if (offset > state.size) {
+        state.size = offset;
     }
 
-    m_offset = offset;
+    state.offset = offset;
 }
 
 typedef std::map<M4Image::COLOR_FORMAT, mango::image::Format> COLOR_FORMAT_MAP;
