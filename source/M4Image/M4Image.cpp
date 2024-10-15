@@ -4,21 +4,179 @@
 
 #include <mango/image/surface.hpp>
 #include <mango/image/decoder.hpp>
-#include <mango/core/buffer.hpp>
 #include <pixman.h>
 
-static M4Image::MAllocProc mallocProc = malloc;
+static M4Image::MallocProc mallocProc = malloc;
 static M4Image::FreeProc freeProc = free;
+static M4Image::ReallocProc reallocProc = realloc;
 
 // normally the free function will work even if it is passed a null pointer
 // but since we allow custom allocators to be used, this may not always be a guarantee
 // since I rely on this, I wrap the free procedure here to check
-void freeBits(unsigned char* &bits) {
-    if (bits) {
-        freeProc(bits);
+void freeSafe(unsigned char* &block) {
+    if (block) {
+        freeProc(block);
     }
 
-    bits = 0;
+    block = 0;
+}
+
+// the mango::core::MemoryStream class does not allow using a custom allocator
+// so we must implement our own
+// this is here instead of in the header so that it's private to this translation unit
+class AllocatorStream : public mango::Stream {
+    private:
+    mango::u64 m_capacity = 0;
+    mango::u64 m_size = 0;
+    mango::u64 m_offset = 0;
+    mango::u8* m_data = 0;
+
+    void allocate();
+
+    public:
+    AllocatorStream();
+    ~AllocatorStream();
+    mango::u64 capacity() const;
+    mango::u64 size() const;
+    mango::u64 offset() const;
+    mango::u8* acquire();
+    void reserve(mango::u64 offset);
+    void seek(mango::s64 distance, SeekMode mode);
+    void read(void* dest, mango::u64 size);
+    void write(const void* data, mango::u64 size);
+};
+
+void AllocatorStream::allocate() {
+    // initial capacity is 128 bytes
+    // because it is probably the smallest reasonable size for an image
+    // (it is the exact size of a 2x2 pixel white PNG)
+    // must be a power of two
+    const mango::u64 INITIAL_CAPACITY = 128;
+
+    m_data = (mango::u8*)mallocProc(INITIAL_CAPACITY);
+
+    if (!m_data) {
+        MANGO_EXCEPTION("[AllocatorStream] Failed to allocate memory.");
+    }
+
+    m_capacity = INITIAL_CAPACITY;
+}
+
+AllocatorStream::AllocatorStream() {
+    allocate();
+}
+
+AllocatorStream::~AllocatorStream() {
+    freeSafe(m_data);
+}
+
+mango::u64 AllocatorStream::capacity() const {
+    return m_capacity;
+}
+
+mango::u64 AllocatorStream::size() const {
+    return m_size;
+}
+
+mango::u64 AllocatorStream::offset() const {
+    return m_offset;
+}
+
+mango::u8* AllocatorStream::acquire() {
+    mango::u8* result = m_data;
+
+    MAKE_SCOPE_EXIT(resultScopeExit) {
+        freeSafe(result);
+    };
+
+    allocate();
+
+    resultScopeExit.dismiss();
+    return result;
+}
+
+void AllocatorStream::reserve(mango::u64 offset) {
+    // find power of two greater than or equal to the offset
+    mango::u64 capacity = m_capacity;
+
+    if (offset <= capacity) {
+        return;
+    }
+
+    do {
+        capacity *= 2;
+    } while (offset > capacity);
+
+    m_data = (mango::u8*)reallocProc(m_data, capacity);
+
+    if (!m_data) {
+        MANGO_EXCEPTION("[AllocatorStream] Failed to reallocate memory.");
+    }
+
+    m_capacity = capacity;
+}
+
+void AllocatorStream::seek(mango::s64 distance, SeekMode mode) {
+    switch (mode) {
+        case BEGIN:
+        m_offset = distance;
+        break;
+        case CURRENT:
+        m_offset += distance;
+        break;
+        case END:
+        m_offset = m_size - distance;
+    }
+}
+
+void AllocatorStream::read(void* dest, mango::u64 size) {
+    mango::u64 offset = m_offset + size;
+
+    // ensure we didn't overflow
+    if (offset < m_offset) {
+        MANGO_EXCEPTION("[AllocatorStream] Size too large.");
+    }
+
+    // ensure we don't read past the end
+    if (offset > m_size) {
+        MANGO_EXCEPTION("[AllocatorStream] Reading past end of data.");
+    }
+
+    // we have verified that size is less than the size of the data
+    // so it is safe to use as the source size
+    if (memcpy_s(dest, size, m_data + m_offset, size)) {
+        MANGO_EXCEPTION("[AllocatorStream] Failed to copy memory.");
+    }
+
+    m_offset = offset;
+}
+
+void AllocatorStream::write(const void* data, mango::u64 size) {
+    mango::u64 offset = m_offset + size;
+
+    // ensure we didn't overflow
+    if (offset < m_offset) {
+        MANGO_EXCEPTION("[AllocatorStream] Size too large.");
+    }
+
+    // ensure we don't write past the end
+    reserve(offset);
+
+    // zero seeked over data
+    if (m_offset > m_size) {
+        memset(m_data + m_size, 0, m_offset - m_size);
+    }
+
+    if (memcpy_s(m_data + m_offset, m_capacity - m_offset, data, size)) {
+        MANGO_EXCEPTION("[AllocatorStream] Failed to copy memory.");
+    }
+
+    // set the size
+    if (offset > m_size) {
+        m_size = offset;
+    }
+
+    m_offset = offset;
 }
 
 typedef std::map<M4Image::COLOR_FORMAT, mango::image::Format> COLOR_FORMAT_MAP;
@@ -46,7 +204,7 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
     }
 
     MAKE_SCOPE_EXIT(surfaceImageScopeExit) {
-        freeBits(surface.image);
+        freeSafe(surface.image);
     };
 
     // uncomment the second argument to disable multithreading
@@ -61,30 +219,15 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
 }
 
 unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const char* extension, size_t &size, float quality = 0.90f) {
-    mango::MemoryStream memoryStream = mango::MemoryStream();
-    mango::image::ImageEncodeStatus status = surface.save(memoryStream, extension, { {}, {}, quality });
+    AllocatorStream allocatorStream = AllocatorStream();
+    mango::image::ImageEncodeStatus status = surface.save(allocatorStream, extension, { {}, {}, quality });
 
     if (!status) {
         MANGO_EXCEPTION("[WARNING] {}", status.info);
     }
 
-    size = memoryStream.size();
-    unsigned char* bits = (unsigned char*)mallocProc(size);
-
-    if (!bits) {
-        return 0;
-    }
-
-    MAKE_SCOPE_EXIT(bitsScopeExit) {
-        freeBits(bits);
-    };
-
-    if (memcpy_s(bits, size, memoryStream, size)) {
-        return 0;
-    }
-
-    bitsScopeExit.dismiss();
-    return bits;
+    size = allocatorStream.size();
+    return allocatorStream.acquire();
 }
 
 typedef std::map<M4Image::COLOR_FORMAT, pixman_format_code_t> PIXMAN_FORMAT_CODE_MAP;
@@ -299,7 +442,7 @@ unsigned char* convertImage(M4Image::Color32* colorPointer, size_t width, size_t
     }
 
     MAKE_SCOPE_EXIT(bitsScopeExit) {
-        freeBits(bits);
+        freeSafe(bits);
     };
 
     unsigned char* rowPointer = bits;
@@ -373,9 +516,13 @@ namespace M4Image {
         size_t size,
         int width,
         int height,
-        size_t stride,
+        size_t &stride,
         COLOR_FORMAT colorFormat
     ) {
+        MAKE_SCOPE_EXIT(strideScopeExit) {
+            stride = 0;
+        };
+
         if (!extension) {
             return 0;
         }
@@ -420,7 +567,7 @@ namespace M4Image {
             surface.stride = (stride && !resize) ? stride : (size_t)imageHeader.width * (size_t)surface.format.bytes();
             decodeSurfaceImage(surface, imageDecoder);
         } catch (...) {
-            freeBits(surface.image);
+            freeSafe(surface.image);
             return 0;
         }
 
@@ -435,7 +582,7 @@ namespace M4Image {
 
         // otherwise we have to do a bunch of boilerplate setup stuff for the resize operation
         SCOPE_EXIT {
-            freeBits(surface.image);
+            freeSafe(surface.image);
         };
 
         const size_t BYTES = 3;
@@ -451,7 +598,7 @@ namespace M4Image {
         }
 
         MAKE_SCOPE_EXIT(bitsScopeExit) {
-            freeBits(bits);
+            freeSafe(bits);
         };
 
         // create the destination image in the user's desired format
@@ -469,7 +616,7 @@ namespace M4Image {
 
         SCOPE_EXIT {
             if (!unrefImage(destinationImage)) {
-                freeBits(bits);
+                freeSafe(bits);
             }
         };
 
@@ -486,7 +633,7 @@ namespace M4Image {
 
         SCOPE_EXIT {
             if (!unrefImage(sourceImage)) {
-                freeBits(bits);
+                freeSafe(bits);
             }
         };
 
@@ -510,7 +657,7 @@ namespace M4Image {
         SCOPE_EXIT {
             if (maskImage && maskImage != sourceImage) {
                 if (!unrefImage(maskImage)) {
-                    freeBits(bits);
+                    freeSafe(bits);
                 }
             }
         };
@@ -540,7 +687,11 @@ namespace M4Image {
         if (convert) {
             const size_t COLOR16_SIZE = sizeof(Color16);
 
-            unsigned char* convertedBits = convertImage((Color32*)bits, width, height, stride ? stride : (size_t)width * COLOR16_SIZE, unpremultiply);
+            if (!stride) {
+                stride = (size_t)width * COLOR16_SIZE;
+            }
+
+            unsigned char* convertedBits = convertImage((Color32*)bits, width, height, stride, unpremultiply);
 
             if (!convertedBits) {
                 return 0;
@@ -548,13 +699,18 @@ namespace M4Image {
 
             // this is necessary so that, if an error occurs with unreffing the images
             // that we return zero, because bits will become set to zero
-            freeBits(bits);
+            freeSafe(bits);
             bits = convertedBits;
-        } else if (unpremultiply) {
-            unpremultiplyColors((Color32*)bits, width, height, bitsStride);
+        } else {
+            stride = bitsStride;
+
+            if (unpremultiply) {
+                unpremultiplyColors((Color32*)bits, width, height, stride);
+            }
         }
 
         bitsScopeExit.dismiss();
+        strideScopeExit.dismiss();
         return bits;
     }
 
@@ -657,8 +813,9 @@ namespace M4Image {
         return true;
     }
 
-    void setAllocator(MAllocProc _mallocProc, FreeProc _freeProc) {
+    void setAllocator(MallocProc _mallocProc, FreeProc _freeProc, ReallocProc _reallocProc) {
         mallocProc = _mallocProc;
         freeProc = _freeProc;
+        reallocProc = _reallocProc;
     }
 };
