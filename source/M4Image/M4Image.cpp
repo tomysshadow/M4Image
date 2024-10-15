@@ -48,6 +48,7 @@ class AllocatorStream : public mango::Stream {
 };
 
 AllocatorStream::~AllocatorStream() {
+    // note that for acquire to work this cannot happen in State's destructor
     freeSafe(state.data);
 }
 
