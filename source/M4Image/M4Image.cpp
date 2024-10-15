@@ -36,7 +36,7 @@ class AllocatorStream : public mango::Stream {
     State state = {};
 
     public:
-    ~AllocatorStream();
+    virtual ~AllocatorStream();
     mango::u64 capacity() const;
     mango::u64 size() const;
     mango::u64 offset() const;
