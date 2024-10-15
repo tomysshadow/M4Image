@@ -72,6 +72,7 @@ namespace M4Image {
 
     M4IMAGE_API void* M4IMAGE_CALL malloc(size_t size);
     M4IMAGE_API void M4IMAGE_CALL free(void* block);
+    M4IMAGE_API void* M4IMAGE_CALL realloc(void* block, size_t size);
 
     M4IMAGE_API bool M4IMAGE_CALL getInfo(
         const char* extension,

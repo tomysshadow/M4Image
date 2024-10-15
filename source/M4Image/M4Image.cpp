@@ -764,6 +764,10 @@ namespace M4Image {
         freeProc(block);
     }
 
+    void* realloc(void* block, size_t size) {
+        return reallocProc(block, size);
+    }
+
     bool getInfo(
         const char* extension,
         const unsigned char* address,
