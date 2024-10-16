@@ -224,6 +224,22 @@ unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const ch
     return allocatorStream.acquire();
 }
 
+void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface) {
+    // allocate memory for the image
+    outputSurface.image = (mango::u8*)mallocProc(outputSurface.stride * (size_t)outputSurface.height);
+
+    if (!outputSurface.image) {
+        return;
+    }
+
+    MAKE_SCOPE_EXIT(outputSurfaceImageScopeExit) {
+        freeSafe(outputSurface.image);
+    };
+
+    outputSurface.blit(0, 0, inputSurface);
+    outputSurfaceImageScopeExit.dismiss();
+}
+
 typedef std::map<M4Image::COLOR_FORMAT, pixman_format_code_t> PIXMAN_FORMAT_CODE_MAP;
 
 // no, these are not backwards (read comments for getResizeFormat function below)
@@ -501,6 +517,149 @@ void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t he
     }
 }
 
+unsigned char* resizeImage(
+    mango::image::Surface &surface,
+    int width,
+    int height,
+    size_t &stride,
+    bool convert,
+    bool isAlpha,
+    pixman_format_code_t sourceFormat,
+    pixman_format_code_t destinationFormat
+) {
+    // otherwise we have to do a bunch of boilerplate setup stuff for the resize operation
+    SCOPE_EXIT {
+        freeSafe(surface.image);
+    };
+
+    const size_t BYTES = 3;
+
+    // bits MUST be a seperate buffer to surface.image (yes, even for upscaling)
+    // if we aren't converting, we expect to get the destination image in the user requested stride
+    // if we are converting, we expect it to be based on the format, for convenience's sake
+    size_t bitsStride = (stride && !convert) ? stride : (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width;
+    unsigned char* bits = (unsigned char*)mallocProc(bitsStride * (size_t)height);
+
+    if (!bits) {
+        return 0;
+    }
+
+    MAKE_SCOPE_EXIT(bitsScopeExit) {
+        freeSafe(bits);
+    };
+
+    // create the destination image in the user's desired format
+    // (unless we need to convert to 16-bit after, then we still make it 32-bit)
+    pixman_image_t* destinationImage = pixman_image_create_bits(
+        destinationFormat,
+        width, height,
+        (uint32_t*)bits,
+        (int)bitsStride
+    );
+
+    if (!destinationImage) {
+        return 0;
+    }
+
+    SCOPE_EXIT {
+        if (!unrefImage(destinationImage)) {
+            freeSafe(bits);
+        }
+    };
+
+    pixman_image_t* sourceImage = pixman_image_create_bits(
+        sourceFormat,
+        surface.width, surface.height,
+        (uint32_t*)surface.image,
+        (int)surface.stride
+    );
+
+    if (!sourceImage) {
+        return 0;
+    }
+
+    SCOPE_EXIT {
+        if (!unrefImage(sourceImage)) {
+            freeSafe(bits);
+        }
+    };
+
+    // we should only care about premultiplying if:
+    // -the source format is PIXMAN_x8r8g8b8 (indicating we are meant to use it with maskImage)
+    // -the destination format has alpha (because otherwise the colours will be unaffected by alpha)
+    // -the destination format has RGB channels (because otherwise the colour data will be thrown out anyway)
+    // -the image format is alpha (so we aren't creating an alpha channel for an opaque image)
+    // we don't care about if the surface has alpha here
+    // the source format will be PIXMAN_x8r8g8b8 if it does/it matters
+    bool unpremultiply = sourceFormat == PIXMAN_x8r8g8b8
+        && PIXMAN_FORMAT_A(destinationFormat)
+        && PIXMAN_FORMAT_COLOR(destinationFormat)
+        && isAlpha;
+
+    // premultiply, only if we'll undo it later, and if the original image wasn't already premultiplied
+    pixman_image_t* maskImage = unpremultiply
+        ? premultiplyMaskImage(surface, sourceImage)
+        : sourceImage;
+
+    SCOPE_EXIT {
+        if (maskImage && maskImage != sourceImage) {
+            if (!unrefImage(maskImage)) {
+                freeSafe(bits);
+            }
+        }
+    };
+
+    if (!setTransform(maskImage, surface, width, height)) {
+        return 0;
+    }
+
+    if (!pixman_image_set_filter(maskImage, PIXMAN_FILTER_BILINEAR, NULL, 0)) {
+        return 0;
+    }
+
+    // setting the repeat mode to pad prevents some semi-transparent lines at the edge of the image
+    // (because the image is interpreted as being in the middle of a transparent void of pixels otherwise)
+    pixman_image_set_repeat(maskImage, PIXMAN_REPEAT_PAD);
+
+    // the actual resize happens here
+    pixman_image_composite(
+        PIXMAN_OP_SRC,
+        maskImage, NULL, destinationImage,
+        0, 0, 0, 0, 0, 0,
+        width, height
+    );
+
+    // as a final step we need to unpremultiply
+    // as also convert down to 16-bit colour as necessary
+    if (convert) {
+        const size_t COLOR16_SIZE = sizeof(M4Image::Color16);
+
+        if (!stride) {
+            stride = (size_t)width * COLOR16_SIZE;
+        }
+
+        unsigned char* convertedBits = convertImage((M4Image::Color32*)bits, width, height, stride, unpremultiply);
+
+        if (!convertedBits) {
+            return 0;
+        }
+
+        // this is necessary so that, if an error occurs with unreffing the images
+        // that we return zero, because bits will become set to zero
+        freeSafe(bits);
+        bits = convertedBits;
+    } else {
+        stride = bitsStride;
+
+        if (unpremultiply) {
+            unpremultiplyColors((M4Image::Color32*)bits, width, height, stride);
+        }
+    }
+
+    bitsScopeExit.dismiss();
+    return bits;
+}
+
 static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
 
 namespace M4Image {
@@ -571,151 +730,36 @@ namespace M4Image {
 
         // if we don't need to resize the image (width and height matches) then job done
         if (!resize) {
+            stride = surface.stride;
+            strideScopeExit.dismiss();
             return surface.image;
         }
-
-        // otherwise we have to do a bunch of boilerplate setup stuff for the resize operation
-        SCOPE_EXIT {
-            freeSafe(surface.image);
-        };
-
-        const size_t BYTES = 3;
-
-        // bits MUST be a seperate buffer to surface.image (yes, even for upscaling)
-        // if we aren't converting, we expect to get the destination image in the user requested stride
-        // if we are converting, we expect it to be based on the format, for convenience's sake
-        size_t bitsStride = (stride && !convert) ? stride : (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width;
-        unsigned char* bits = (unsigned char*)mallocProc(bitsStride * (size_t)height);
-
-        if (!bits) {
-            return 0;
-        }
-
-        MAKE_SCOPE_EXIT(bitsScopeExit) {
-            freeSafe(bits);
-        };
-
-        // create the destination image in the user's desired format
-        // (unless we need to convert to 16-bit after, then we still make it 32-bit)
-        pixman_image_t* destinationImage = pixman_image_create_bits(
-            destinationFormat,
-            width, height,
-            (uint32_t*)bits,
-            (int)bitsStride
-        );
-
-        if (!destinationImage) {
-            return 0;
-        }
-
-        SCOPE_EXIT {
-            if (!unrefImage(destinationImage)) {
-                freeSafe(bits);
-            }
-        };
-
-        pixman_image_t* sourceImage = pixman_image_create_bits(
+        
+        unsigned char* bits = resizeImage(
+            surface,
+            width,
+            height,
+            stride,
+            convert,
+            imageHeader.format.isAlpha(),
             sourceFormat,
-            surface.width, surface.height,
-            (uint32_t*)surface.image,
-            (int)surface.stride
+            destinationFormat
         );
 
-        if (!sourceImage) {
-            return 0;
+        if (bits) {
+            strideScopeExit.dismiss();
         }
-
-        SCOPE_EXIT {
-            if (!unrefImage(sourceImage)) {
-                freeSafe(bits);
-            }
-        };
-
-        // we should only care about premultiplying if:
-        // -the source format is PIXMAN_x8r8g8b8 (indicating we are meant to use it with maskImage)
-        // -the destination format has alpha (because otherwise the colours will be unaffected by alpha)
-        // -the destination format has RGB channels (because otherwise the colour data will be thrown out anyway)
-        // -the image format is alpha (so we aren't creating an alpha channel for an opaque image)
-        // we don't care about if the surface has alpha here
-        // the source format will be PIXMAN_x8r8g8b8 if it does/it matters
-        bool unpremultiply = sourceFormat == PIXMAN_x8r8g8b8
-        && PIXMAN_FORMAT_A(destinationFormat)
-        && PIXMAN_FORMAT_COLOR(destinationFormat)
-        && imageHeader.format.isAlpha();
-
-        // premultiply, only if we'll undo it later, and if the original image wasn't already premultiplied
-        pixman_image_t* maskImage = unpremultiply
-            ? premultiplyMaskImage(surface, sourceImage)
-            : sourceImage;
-
-        SCOPE_EXIT {
-            if (maskImage && maskImage != sourceImage) {
-                if (!unrefImage(maskImage)) {
-                    freeSafe(bits);
-                }
-            }
-        };
-
-        if (!setTransform(maskImage, surface, width, height)) {
-            return 0;
-        }
-
-        if (!pixman_image_set_filter(maskImage, PIXMAN_FILTER_BILINEAR, NULL, 0)) {
-            return 0;
-        }
-
-        // setting the repeat mode to pad prevents some semi-transparent lines at the edge of the image
-        // (because the image is interpreted as being in the middle of a transparent void of pixels otherwise)
-        pixman_image_set_repeat(maskImage, PIXMAN_REPEAT_PAD);
-
-        // the actual resize happens here
-        pixman_image_composite(
-            PIXMAN_OP_SRC,
-            maskImage, NULL, destinationImage,
-            0, 0, 0, 0, 0, 0,
-            width, height
-        );
-
-        // as a final step we need to unpremultiply
-        // as also convert down to 16-bit colour as necessary
-        if (convert) {
-            const size_t COLOR16_SIZE = sizeof(Color16);
-
-            if (!stride) {
-                stride = (size_t)width * COLOR16_SIZE;
-            }
-
-            unsigned char* convertedBits = convertImage((Color32*)bits, width, height, stride, unpremultiply);
-
-            if (!convertedBits) {
-                return 0;
-            }
-
-            // this is necessary so that, if an error occurs with unreffing the images
-            // that we return zero, because bits will become set to zero
-            freeSafe(bits);
-            bits = convertedBits;
-        } else {
-            stride = bitsStride;
-
-            if (unpremultiply) {
-                unpremultiplyColors((Color32*)bits, width, height, stride);
-            }
-        }
-
-        bitsScopeExit.dismiss();
-        strideScopeExit.dismiss();
         return bits;
     }
 
     M4IMAGE_API unsigned char* M4IMAGE_CALL save(
         const char* extension,
+        const void* image,
+        size_t &size,
         int width,
         int height,
         size_t stride,
         COLOR_FORMAT colorFormat,
-        const void* image,
-        size_t &size,
         float quality
     ) {
         MAKE_SCOPE_EXIT(sizeScopeExit) {
@@ -726,11 +770,11 @@ namespace M4Image {
             return 0;
         }
 
-        if (!width || !height) {
+        if (!image) {
             return 0;
         }
 
-        if (!image) {
+        if (!width || !height) {
             return 0;
         }
 
@@ -752,6 +796,94 @@ namespace M4Image {
 
         if (bits) {
             sizeScopeExit.dismiss();
+        }
+        return bits;
+    }
+
+    M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
+        const void* image,
+        int inputWidth,
+        int inputHeight,
+        size_t inputStride,
+        COLOR_FORMAT inputColorFormat,
+        int outputWidth,
+        int outputHeight,
+        size_t &outputStride,
+        COLOR_FORMAT outputColorFormat
+    ) {
+        MAKE_SCOPE_EXIT(outputStrideScopeExit) {
+            outputStride = 0;
+        };
+
+        if (!image) {
+            return 0;
+        }
+
+        if (!inputWidth || !inputHeight) {
+            return 0;
+        }
+
+        if (!outputWidth || !outputHeight) {
+            return 0;
+        }
+
+        bool resize = inputWidth != outputWidth || inputHeight != outputHeight;
+        bool convert = outputColorFormat == COLOR_FORMAT::AL16;
+        bool isAlpha = false;
+
+        pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
+        pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
+
+        if (resize) {
+            outputColorFormat = getResizeColorFormat(false, outputColorFormat, sourceFormat, destinationFormat);
+        }
+
+        mango::image::Surface outputSurface = mango::image::Surface();
+
+        try {
+            const mango::image::Format &INPUT_FORMAT = FORMAT_MAP.at(inputColorFormat);
+
+            const mango::image::Surface INPUT_SURFACE = mango::image::Surface(
+                inputWidth, inputHeight,
+                INPUT_FORMAT, inputStride ? inputStride : (size_t)inputWidth * (size_t)INPUT_FORMAT.bytes(),
+                image
+            );
+
+            isAlpha = INPUT_SURFACE.format.isAlpha();
+
+            // the resize is not done here, so the input width and height is used for the output surface
+            outputSurface.format = FORMAT_MAP.at(outputColorFormat);
+            outputSurface.width = inputWidth;
+            outputSurface.height = inputHeight;
+            outputSurface.stride = (outputStride && !resize) ? outputStride : (size_t)outputWidth * (size_t)outputSurface.format.bytes();
+            blitSurfaceImage(INPUT_SURFACE, outputSurface);
+        } catch (...) {
+            return 0;
+        }
+
+        if (!outputSurface.image) {
+            return 0;
+        }
+
+        if (!resize) {
+            outputStride = outputSurface.stride;
+            outputStrideScopeExit.dismiss();
+            return outputSurface.image;
+        }
+
+        unsigned char* bits = resizeImage(
+            outputSurface,
+            outputWidth,
+            outputHeight,
+            outputStride,
+            convert,
+            isAlpha,
+            sourceFormat,
+            destinationFormat
+        );
+
+        if (bits) {
+            outputStrideScopeExit.dismiss();
         }
         return bits;
     }
