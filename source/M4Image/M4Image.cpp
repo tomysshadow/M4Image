@@ -206,7 +206,7 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
 
     // status is false if decoding the image failed
     if (!status) {
-        MANGO_EXCEPTION("[WARNING] {}", status.info);
+        MANGO_EXCEPTION("[INFO] {}", status.info);
     }
 
     surfaceImageScopeExit.dismiss();
@@ -217,7 +217,7 @@ unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const ch
     mango::image::ImageEncodeStatus status = surface.save(allocatorStream, extension, { {}, {}, quality });
 
     if (!status) {
-        MANGO_EXCEPTION("[WARNING] {}", status.info);
+        MANGO_EXCEPTION("[INFO] {}", status.info);
     }
 
     size = allocatorStream.size();
@@ -225,8 +225,8 @@ unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const ch
 }
 
 void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface) {
-    // allocate memory for the image
-    outputSurface.image = (mango::u8*)mallocProc(outputSurface.stride * (size_t)outputSurface.height);
+    size_t outputSurfaceImageSize = outputSurface.stride * (size_t)outputSurface.height;
+    outputSurface.image = (mango::u8*)mallocProc(outputSurfaceImageSize);
 
     if (!outputSurface.image) {
         return;
@@ -236,7 +236,18 @@ void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::S
         freeSafe(outputSurface.image);
     };
 
-    outputSurface.blit(0, 0, inputSurface);
+    if (
+        inputSurface.format == outputSurface.format
+        && inputSurface.stride == outputSurface.stride
+        && inputSurface.width == outputSurface.width
+        && inputSurface.height == outputSurface.height
+    ) {
+        if (memcpy_s(outputSurface.image, outputSurfaceImageSize, inputSurface.image, inputSurface.stride * (size_t)inputSurface.height)) {
+            return;
+        }
+    } else {
+        outputSurface.blit(0, 0, inputSurface);
+    }
     outputSurfaceImageScopeExit.dismiss();
 }
 
@@ -835,7 +846,7 @@ namespace M4Image {
         pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
 
         if (resize) {
-            outputColorFormat = getResizeColorFormat(false, outputColorFormat, sourceFormat, destinationFormat);
+            outputColorFormat = getResizeColorFormat(inputColorFormat == M4Image::COLOR_FORMAT::RGBA32, outputColorFormat, sourceFormat, destinationFormat);
         }
 
         mango::image::Surface outputSurface = mango::image::Surface();
