@@ -136,7 +136,7 @@ void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t he
     }
 }
 
-void grayscaleColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool rgba, bool linear) {
+void grayscaleColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool rgba, bool linear = false) {
     size_t channelR = rgba ? 0 : 2;
     size_t channelG = 1;
     size_t channelB = rgba ? 2 : 0;
@@ -373,7 +373,7 @@ size_t setSurfaceStride(mango::image::Surface &surface, const mango::image::Form
     return (direct || color) ? stride : surface.width * (size_t)grayscaleFormat.bytes();
 }
 
-void grayscaleSurfaceImage(mango::image::Surface &surface, const mango::image::Format &format, size_t stride, bool rgba, bool linear) {
+void grayscaleSurfaceImage(mango::image::Surface &surface, const mango::image::Format &format, size_t stride, bool rgba, bool linear = false) {
     if (!format.isLuminance()) {
         return;
     }
@@ -393,7 +393,7 @@ void grayscaleSurfaceImage(mango::image::Surface &surface, const mango::image::F
     surface.blit(0, 0, grayscaleSurface);
 }
 
-void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba, bool linear) {
+void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba, bool linear = false) {
     // allocate memory for the image
     surface.image = (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
 
@@ -429,7 +429,7 @@ unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const ch
     return allocatorStream.acquire();
 }
 
-void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba, bool linear) {
+void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba, bool linear = false) {
     size_t outputSurfaceImageSize = outputSurface.stride * (size_t)outputSurface.height;
     outputSurface.image = (mango::u8*)mallocProc(outputSurfaceImageSize);
 
