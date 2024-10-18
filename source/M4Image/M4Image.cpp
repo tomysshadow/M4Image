@@ -21,6 +21,149 @@ void freeSafe(unsigned char* &block) {
     block = 0;
 }
 
+// aligned to nearest 64 bytes so it is on cache lines
+static bool channelUnpremultiplierCreated = false;
+__declspec(align(64)) static unsigned char CHANNEL_UNPREMULTIPLIER[USHRT_MAX + 1] = {};
+
+void createChannelUnpremultiplier() {
+    if (channelUnpremultiplierCreated) {
+        return;
+    }
+
+    // note: the alpha, divided by two, is added to the channel
+    // so the channel is scaled instead of stripped (it works out to rounding the number, instead of flooring)
+    // alpha starts at one, since if it's zero the colour is invisible anyway (and thus would be a divide by zero)
+    const size_t DIVIDE_BY_TWO = 1;
+
+    for (int channel = 0; channel <= UCHAR_MAX; channel++) {
+        for (int alpha = 1; alpha <= UCHAR_MAX; alpha++) {
+            CHANNEL_UNPREMULTIPLIER[(channel << CHAR_BIT) | alpha] = clampUCHAR(((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha);
+        }
+    }
+
+    // this function may get hit by multiple threads at once
+    // however, it's entirely deterministic, so it doesn't really matter
+    // the worst case scenario is that one thread hits this as
+    // another is just finishing
+    // but even in that case, it only costs the same time as processing a
+    // single 255 * 255 image the slow way, two times, at most
+    // which doesn't actually take very long, usually only 1 ms
+    // (and then processing larger images costs nothing, pennies, so it's extremely worth it)
+    // having a lock here would just require threads to wait about the
+    // same amount of time for the first to finish
+    // but would be a slowdown the other 99% of the time
+    // so it's better to just eat the cost of needing to potentially do this multiple times
+    // that said, it's important this is only set to true here at the end!
+    channelUnpremultiplierCreated = true;
+}
+
+#define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER[((channel) << CHAR_BIT) | (alpha)])
+
+unsigned char* convertColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool unpremultiply) {
+    const size_t CHANNEL_LUMINANCE = 2;
+    const size_t CHANNEL_ALPHA = 3;
+
+    unsigned char* bits = (unsigned char*)mallocProc((size_t)height * stride);
+
+    if (!bits) {
+        return 0;
+    }
+
+    MAKE_SCOPE_EXIT(bitsScopeExit) {
+        freeSafe(bits);
+    };
+
+    unsigned char* rowPointer = bits;
+    M4Image::Color16* luminancePointer = (M4Image::Color16*)rowPointer;
+
+    if (unpremultiply) {
+        createChannelUnpremultiplier();
+
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                unsigned char &alpha = luminancePointer->channels[1];
+                alpha = colorPointer->channels[CHANNEL_ALPHA];
+
+                if (alpha) {
+                    luminancePointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[CHANNEL_LUMINANCE], alpha);
+                }
+
+                colorPointer++;
+                luminancePointer++;
+            }
+
+            rowPointer += stride;
+            luminancePointer = (M4Image::Color16*)rowPointer;
+        }
+    } else {
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                *luminancePointer++ = *(M4Image::Color16*)&colorPointer++->channels[CHANNEL_LUMINANCE];
+            }
+
+            rowPointer += stride;
+            luminancePointer = (M4Image::Color16*)rowPointer;
+        }
+    }
+
+    bitsScopeExit.dismiss();
+    return bits;
+}
+
+void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride) {
+    createChannelUnpremultiplier();
+
+    const size_t CHANNEL_ALPHA = 3;
+
+    unsigned char* rowPointer = (unsigned char*)colorPointer;
+
+    for (size_t i = 0; i < height; i++) {
+        for (size_t j = 0; j < width; j++) {
+            const unsigned char &ALPHA = colorPointer->channels[CHANNEL_ALPHA];
+
+            if (ALPHA) {
+                colorPointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[0], ALPHA);
+                colorPointer->channels[1] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[1], ALPHA);
+                colorPointer->channels[2] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[2], ALPHA);
+            }
+
+            colorPointer++;
+        }
+
+        rowPointer += stride;
+        colorPointer = (M4Image::Color32*)rowPointer;
+    }
+}
+
+void grayscaleColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool rgba) {
+    size_t channelR = rgba ? 0 : 2;
+    size_t channelG = 1;
+    size_t channelB = rgba ? 2 : 0;
+
+    unsigned char* rowPointer = (unsigned char*)colorPointer;
+
+    for (size_t i = 0; i < height; i++) {
+        for (size_t j = 0; j < width; j++) {
+            unsigned char &r = colorPointer->channels[channelR];
+            unsigned char &g = colorPointer->channels[channelG];
+            unsigned char &b = colorPointer->channels[channelB];
+
+            // grayscale approximation
+            // https://stackoverflow.com/a/596241/3591734
+            unsigned char l = ((r << 1) + r + (g << 2) + b) >> 3;
+
+            r = l;
+            g = l;
+            b = l;
+
+            colorPointer++;
+        }
+
+        rowPointer += stride;
+        colorPointer = (M4Image::Color32*)rowPointer;
+    }
+}
+
 // the mango::core::MemoryStream class does not allow using a custom allocator
 // so we must implement our own
 // this is here instead of in the header so that it's private to this translation unit
@@ -189,7 +332,51 @@ static const COLOR_FORMAT_MAP FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::XXLA32, mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000)},
 };
 
-void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder) {
+static const mango::image::Format LUMINANCE_FORMAT_RGBA32 = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
+static const mango::image::Format LUMINANCE_FORMAT_BGRA32 = FORMAT_MAP.at(M4Image::COLOR_FORMAT::BGRA32);
+
+mango::image::Format setFormat(mango::image::Format &format, M4Image::COLOR_FORMAT colorFormat, bool rgba) {
+    const mango::image::Format &FORMAT = FORMAT_MAP.at(colorFormat);
+
+    format = FORMAT.isLuminance()
+        ? (
+            rgba
+            ? LUMINANCE_FORMAT_RGBA32
+            : LUMINANCE_FORMAT_BGRA32
+        )
+
+        : FORMAT;
+    return FORMAT;
+}
+
+size_t setSurfaceStride(mango::image::Surface &surface, const mango::image::Format &format, size_t width, size_t stride, bool resize) {
+    bool direct = stride && !resize;
+    bool color = !format.isLuminance();
+    surface.stride = (direct && color) ? stride : width * (size_t)surface.format.bytes();
+    return (direct || color) ? stride : width * (size_t)format.bytes();
+}
+
+void grayscaleSurfaceImage(mango::image::Surface &surface, const mango::image::Format &format, size_t stride, bool rgba) {
+    if (!format.isLuminance()) {
+        return;
+    }
+
+    grayscaleColors((M4Image::Color32*)surface.image, surface.width, surface.height, surface.stride, rgba);
+
+    mango::image::Surface grayscaleSurface = surface;
+
+    SCOPE_EXIT {
+        freeSafe(grayscaleSurface.image);
+    };
+
+    surface.format = format;
+    surface.stride = stride;
+    surface.image = (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
+
+    surface.blit(0, 0, grayscaleSurface);
+}
+
+void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder, const mango::image::Format &format, size_t stride, bool rgba) {
     // allocate memory for the image
     surface.image = (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
 
@@ -209,6 +396,7 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
         MANGO_EXCEPTION("[INFO] {}", status.info);
     }
 
+    grayscaleSurfaceImage(surface, format, stride, rgba);
     surfaceImageScopeExit.dismiss();
 }
 
@@ -224,7 +412,7 @@ unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const ch
     return allocatorStream.acquire();
 }
 
-void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface) {
+void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface, const mango::image::Format &outputFormat, size_t outputStride, bool rgba) {
     size_t outputSurfaceImageSize = outputSurface.stride * (size_t)outputSurface.height;
     outputSurface.image = (mango::u8*)mallocProc(outputSurfaceImageSize);
 
@@ -248,6 +436,8 @@ void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::S
     } else {
         outputSurface.blit(0, 0, inputSurface);
     }
+
+    grayscaleSurfaceImage(outputSurface, outputFormat, outputStride, rgba);
     outputSurfaceImageScopeExit.dismiss();
 }
 
@@ -280,10 +470,10 @@ static const PIXMAN_FORMAT_CODE_MAP BGRA_PIXMAN_FORMAT_CODE_MAP = {
 // this makes the constants a little confusing
 // from here on out, I'll be using little endian (like mango)
 M4Image::COLOR_FORMAT getResizeColorFormat(
-    bool rgba,
     M4Image::COLOR_FORMAT colorFormat,
     pixman_format_code_t &sourceFormat,
-    pixman_format_code_t &destinationFormat
+    pixman_format_code_t &destinationFormat,
+    bool rgba
 ) {
     switch (colorFormat) {
         case M4Image::COLOR_FORMAT::A8:
@@ -414,120 +604,6 @@ bool setTransform(pixman_image_t* maskImage, const mango::image::Surface &surfac
     return true;
 }
 
-// aligned to nearest 64 bytes so it is on cache lines
-static bool channelUnpremultiplierCreated = false;
-__declspec(align(64)) static unsigned char CHANNEL_UNPREMULTIPLIER[USHRT_MAX + 1] = {};
-
-void createChannelUnpremultiplier() {
-    if (channelUnpremultiplierCreated) {
-        return;
-    }
-
-    // note: the alpha, divided by two, is added to the channel
-    // so the channel is scaled instead of stripped (it works out to rounding the number, instead of flooring)
-    // alpha starts at one, since if it's zero the colour is invisible anyway (and thus would be a divide by zero)
-    const size_t DIVIDE_BY_TWO = 1;
-
-    for (int channel = 0; channel <= UCHAR_MAX; channel++) {
-        for (int alpha = 1; alpha <= UCHAR_MAX; alpha++) {
-            CHANNEL_UNPREMULTIPLIER[(channel << CHAR_BIT) | alpha] = clampUCHAR(((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha);
-        }
-    }
-
-    // this function may get hit by multiple threads at once
-    // however, it's entirely deterministic, so it doesn't really matter
-    // the worst case scenario is that one thread hits this as
-    // another is just finishing
-    // but even in that case, it only costs the same time as processing a
-    // single 255 * 255 image the slow way, two times, at most
-    // which doesn't actually take very long, usually only 1 ms
-    // (and then processing larger images costs nothing, pennies, so it's extremely worth it)
-    // having a lock here would just require threads to wait about the
-    // same amount of time for the first to finish
-    // but would be a slowdown the other 99% of the time
-    // so it's better to just eat the cost of needing to potentially do this multiple times
-    // that said, it's important this is only set to true here at the end!
-    channelUnpremultiplierCreated = true;
-}
-
-#define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER[((channel) << CHAR_BIT) | (alpha)])
-
-unsigned char* convertImage(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool unpremultiply) {
-    const size_t CHANNEL_LUMINANCE = 2;
-    const size_t CHANNEL_ALPHA = 3;
-
-    unsigned char* bits = (unsigned char*)mallocProc((size_t)height * stride);
-
-    if (!bits) {
-        return 0;
-    }
-
-    MAKE_SCOPE_EXIT(bitsScopeExit) {
-        freeSafe(bits);
-    };
-
-    unsigned char* rowPointer = bits;
-    M4Image::Color16* luminancePointer = (M4Image::Color16*)rowPointer;
-
-    if (unpremultiply) {
-        createChannelUnpremultiplier();
-
-        for (size_t i = 0; i < height; i++) {
-            for (size_t j = 0; j < width; j++) {
-                unsigned char &alpha = luminancePointer->channels[1];
-                alpha = colorPointer->channels[CHANNEL_ALPHA];
-
-                if (alpha) {
-                    luminancePointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[CHANNEL_LUMINANCE], alpha);
-                }
-
-                colorPointer++;
-                luminancePointer++;
-            }
-
-            rowPointer += stride;
-            luminancePointer = (M4Image::Color16*)rowPointer;
-        }
-    } else {
-        for (size_t i = 0; i < height; i++) {
-            for (size_t j = 0; j < width; j++) {
-                *luminancePointer++ = *(M4Image::Color16*)&colorPointer++->channels[CHANNEL_LUMINANCE];
-            }
-
-            rowPointer += stride;
-            luminancePointer = (M4Image::Color16*)rowPointer;
-        }
-    }
-
-    bitsScopeExit.dismiss();
-    return bits;
-}
-
-void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride) {
-    createChannelUnpremultiplier();
-
-    const size_t CHANNEL_ALPHA = 3;
-
-    unsigned char* rowPointer = (unsigned char*)colorPointer;
-
-    for (size_t i = 0; i < height; i++) {
-        for (size_t j = 0; j < width; j++) {
-            const unsigned char &ALPHA = colorPointer->channels[CHANNEL_ALPHA];
-
-            if (ALPHA) {
-                colorPointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[0], ALPHA);
-                colorPointer->channels[1] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[1], ALPHA);
-                colorPointer->channels[2] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[2], ALPHA);
-            }
-
-            colorPointer++;
-        }
-
-        rowPointer += stride;
-        colorPointer = (M4Image::Color32*)rowPointer;
-    }
-}
-
 unsigned char* resizeImage(
     mango::image::Surface &surface,
     int width,
@@ -649,7 +725,7 @@ unsigned char* resizeImage(
             stride = (size_t)width * COLOR16_SIZE;
         }
 
-        unsigned char* convertedBits = convertImage((M4Image::Color32*)bits, width, height, stride, unpremultiply);
+        unsigned char* convertedBits = convertColors((M4Image::Color32*)bits, width, height, stride, unpremultiply);
 
         if (!convertedBits) {
             return 0;
@@ -712,24 +788,39 @@ namespace M4Image {
             return 0;
         }
 
-        bool resize = width != imageHeader.width || height != imageHeader.height;
-        bool convert = colorFormat == COLOR_FORMAT::AL16;
-
         pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
         pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
 
+        bool resize = width != imageHeader.width || height != imageHeader.height;
+        bool convert = colorFormat == COLOR_FORMAT::AL16;
+        bool rgba = imageHeader.format == IMAGE_HEADER_FORMAT_RGBA;
+
         if (resize) {
-            colorFormat = getResizeColorFormat(imageHeader.format == IMAGE_HEADER_FORMAT_RGBA, colorFormat, sourceFormat, destinationFormat);
+            colorFormat = getResizeColorFormat(colorFormat, sourceFormat, destinationFormat, rgba);
         }
 
         mango::image::Surface surface = mango::image::Surface();
 
         try {
-            surface.format = FORMAT_MAP.at(colorFormat);
+            const mango::image::Format &FORMAT = setFormat(surface.format, colorFormat, rgba);
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
-            surface.stride = (stride && !resize) ? stride : (size_t)imageHeader.width * (size_t)surface.format.bytes();
-            decodeSurfaceImage(surface, imageDecoder);
+
+            decodeSurfaceImage(
+                surface,
+                imageDecoder,
+                FORMAT,
+
+                setSurfaceStride(
+                    surface,
+                    FORMAT,
+                    imageHeader.width,
+                    stride,
+                    resize
+                ),
+
+                rgba
+            );
         } catch (...) {
             freeSafe(surface.image);
             return 0;
@@ -838,15 +929,16 @@ namespace M4Image {
             return 0;
         }
 
-        bool resize = inputWidth != outputWidth || inputHeight != outputHeight;
-        bool convert = outputColorFormat == COLOR_FORMAT::AL16;
-        bool isAlpha = false;
-
         pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
         pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
 
+        bool resize = inputWidth != outputWidth || inputHeight != outputHeight;
+        bool convert = outputColorFormat == COLOR_FORMAT::AL16;
+        bool rgba = inputColorFormat == M4Image::COLOR_FORMAT::RGBA32;
+        bool isAlpha = false;
+
         if (resize) {
-            outputColorFormat = getResizeColorFormat(inputColorFormat == M4Image::COLOR_FORMAT::RGBA32, outputColorFormat, sourceFormat, destinationFormat);
+            outputColorFormat = getResizeColorFormat(outputColorFormat, sourceFormat, destinationFormat, rgba);
         }
 
         mango::image::Surface outputSurface = mango::image::Surface();
@@ -863,11 +955,26 @@ namespace M4Image {
             isAlpha = INPUT_SURFACE.format.isAlpha();
 
             // the resize is not done here, so the input width and height is used for the output surface
-            outputSurface.format = FORMAT_MAP.at(outputColorFormat);
+            const mango::image::Format &OUTPUT_FORMAT = setFormat(outputSurface.format, outputColorFormat, rgba);
+
             outputSurface.width = inputWidth;
             outputSurface.height = inputHeight;
-            outputSurface.stride = (outputStride && !resize) ? outputStride : (size_t)outputWidth * (size_t)outputSurface.format.bytes();
-            blitSurfaceImage(INPUT_SURFACE, outputSurface);
+
+            blitSurfaceImage(
+                INPUT_SURFACE,
+                outputSurface,
+                OUTPUT_FORMAT,
+
+                setSurfaceStride(
+                    outputSurface,
+                    OUTPUT_FORMAT,
+                    inputWidth,
+                    outputStride,
+                    resize
+                ),
+
+                rgba
+            );
         } catch (...) {
             return 0;
         }
