@@ -41,7 +41,8 @@ namespace M4Image {
         int width,
         int height,
         size_t &stride,
-        COLOR_FORMAT colorFormat
+        COLOR_FORMAT colorFormat,
+        bool &linear
     );
 
     M4IMAGE_API unsigned char* M4IMAGE_CALL save(
@@ -64,7 +65,8 @@ namespace M4Image {
         int outputWidth,
         int outputHeight,
         size_t &outputStride,
-        COLOR_FORMAT outputColorFormat
+        COLOR_FORMAT outputColorFormat,
+        bool linear = false
     );
 
     M4IMAGE_API void* M4IMAGE_CALL malloc(size_t size);

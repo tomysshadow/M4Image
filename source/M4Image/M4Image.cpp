@@ -1,6 +1,7 @@
 #include "M4Image/M4Image.h"
 #include <map>
 #include <stdint.h>
+#include <math.h>
 
 #include <mango/image/surface.hpp>
 #include <mango/image/decoder.hpp>
@@ -135,10 +136,16 @@ void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t he
     }
 }
 
-void grayscaleColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool rgba) {
+void grayscaleColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool rgba, bool linear) {
     size_t channelR = rgba ? 0 : 2;
     size_t channelG = 1;
     size_t channelB = rgba ? 2 : 0;
+
+    unsigned char l = 0;
+
+    unsigned short rLinear = 0;
+    unsigned short gLinear = 0;
+    unsigned short bLinear = 0;
 
     unsigned char* rowPointer = (unsigned char*)colorPointer;
 
@@ -148,9 +155,19 @@ void grayscaleColors(M4Image::Color32* colorPointer, size_t width, size_t height
             unsigned char &g = colorPointer->channels[channelG];
             unsigned char &b = colorPointer->channels[channelB];
 
-            // grayscale approximation
-            // https://stackoverflow.com/a/596241/3591734
-            unsigned char l = ((r << 1) + r + (g << 2) + b) >> 3;
+            if (linear) {
+                // fast grayscale approximation
+                // https://stackoverflow.com/a/596241/3591734
+                l = ((r << 1) + r + (g << 2) + b) >> 3;
+            } else {
+                // fast sRGB to linear approximation
+                // https://gamedev.stackexchange.com/a/105045/54039
+                rLinear = r * r;
+                gLinear = g * g;
+                bLinear = b * b;
+
+                l = sqrt(((rLinear << 1) + rLinear + (gLinear << 2) + bLinear) >> 3);
+            }
 
             r = l;
             g = l;
@@ -356,12 +373,12 @@ size_t setSurfaceStride(mango::image::Surface &surface, const mango::image::Form
     return (direct || color) ? stride : surface.width * (size_t)grayscaleFormat.bytes();
 }
 
-void grayscaleSurfaceImage(mango::image::Surface &surface, const mango::image::Format &format, size_t stride, bool rgba) {
+void grayscaleSurfaceImage(mango::image::Surface &surface, const mango::image::Format &format, size_t stride, bool rgba, bool linear) {
     if (!format.isLuminance()) {
         return;
     }
 
-    grayscaleColors((M4Image::Color32*)surface.image, surface.width, surface.height, surface.stride, rgba);
+    grayscaleColors((M4Image::Color32*)surface.image, surface.width, surface.height, surface.stride, rgba, linear);
 
     mango::image::Surface grayscaleSurface = surface;
 
@@ -376,7 +393,7 @@ void grayscaleSurfaceImage(mango::image::Surface &surface, const mango::image::F
     surface.blit(0, 0, grayscaleSurface);
 }
 
-void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba) {
+void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba, bool linear) {
     // allocate memory for the image
     surface.image = (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
 
@@ -396,7 +413,7 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
         MANGO_EXCEPTION("[INFO] {}", status.info);
     }
 
-    grayscaleSurfaceImage(surface, grayscaleFormat, grayscaleStride, rgba);
+    grayscaleSurfaceImage(surface, grayscaleFormat, grayscaleStride, rgba, linear);
     surfaceImageScopeExit.dismiss();
 }
 
@@ -412,7 +429,7 @@ unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const ch
     return allocatorStream.acquire();
 }
 
-void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba) {
+void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba, bool linear) {
     size_t outputSurfaceImageSize = outputSurface.stride * (size_t)outputSurface.height;
     outputSurface.image = (mango::u8*)mallocProc(outputSurfaceImageSize);
 
@@ -437,7 +454,7 @@ void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::S
         outputSurface.blit(0, 0, inputSurface);
     }
 
-    grayscaleSurfaceImage(outputSurface, grayscaleFormat, grayscaleStride, rgba);
+    grayscaleSurfaceImage(outputSurface, grayscaleFormat, grayscaleStride, rgba, linear);
     outputSurfaceImageScopeExit.dismiss();
 }
 
@@ -757,10 +774,15 @@ namespace M4Image {
         int width,
         int height,
         size_t &stride,
-        COLOR_FORMAT colorFormat
+        COLOR_FORMAT colorFormat,
+        bool &linear
     ) {
         MAKE_SCOPE_EXIT(strideScopeExit) {
             stride = 0;
+        };
+
+        MAKE_SCOPE_EXIT(linearScopeExit) {
+            linear = false;
         };
 
         if (!extension) {
@@ -794,6 +816,7 @@ namespace M4Image {
         bool resize = width != imageHeader.width || height != imageHeader.height;
         bool convert = colorFormat == COLOR_FORMAT::AL16;
         bool rgba = imageHeader.format == IMAGE_HEADER_FORMAT_RGBA;
+        linear = imageHeader.linear;
 
         if (resize) {
             colorFormat = getResizeColorFormat(colorFormat, sourceFormat, destinationFormat, rgba);
@@ -818,7 +841,8 @@ namespace M4Image {
                     resize
                 ),
 
-                rgba
+                rgba,
+                linear
             );
         } catch (...) {
             freeSafe(surface.image);
@@ -832,6 +856,7 @@ namespace M4Image {
         // if we don't need to resize the image (width and height matches) then job done
         if (!resize) {
             stride = surface.stride;
+            linearScopeExit.dismiss();
             strideScopeExit.dismiss();
             return surface.image;
         }
@@ -848,6 +873,7 @@ namespace M4Image {
         );
 
         if (bits) {
+            linearScopeExit.dismiss();
             strideScopeExit.dismiss();
         }
         return bits;
@@ -910,7 +936,8 @@ namespace M4Image {
         int outputWidth,
         int outputHeight,
         size_t &outputStride,
-        COLOR_FORMAT outputColorFormat
+        COLOR_FORMAT outputColorFormat,
+        bool linear
     ) {
         MAKE_SCOPE_EXIT(outputStrideScopeExit) {
             outputStride = 0;
@@ -971,7 +998,8 @@ namespace M4Image {
                     resize
                 ),
 
-                rgba
+                rgba,
+                linear
             );
         } catch (...) {
             return 0;
