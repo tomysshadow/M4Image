@@ -844,7 +844,7 @@ namespace M4Image {
                 rgba,
                 linear
             );
-        } catch (...) {
+        } catch (mango::Exception) {
             freeSafe(surface.image);
             return 0;
         }
@@ -942,7 +942,7 @@ namespace M4Image {
             );
 
             bits = encodeSurfaceImage(SURFACE, extension, size, quality);
-        } catch (...) {
+        } catch (mango::Exception) {
             return 0;
         }
 
@@ -1026,7 +1026,7 @@ namespace M4Image {
                 rgba,
                 linear
             );
-        } catch (...) {
+        } catch (mango::Exception) {
             return 0;
         }
 
