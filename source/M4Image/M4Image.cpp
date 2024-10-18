@@ -771,10 +771,10 @@ namespace M4Image {
         const char* extension,
         const unsigned char* address,
         size_t size,
+        COLOR_FORMAT colorFormat,
         int width,
         int height,
         size_t &stride,
-        COLOR_FORMAT colorFormat,
         bool &linear
     ) {
         MAKE_SCOPE_EXIT(strideScopeExit) {
@@ -879,14 +879,39 @@ namespace M4Image {
         return bits;
     }
 
+    unsigned char* load(
+        const char* extension,
+        const unsigned char* address,
+        size_t size,
+        COLOR_FORMAT colorFormat,
+        int width,
+        int height,
+        size_t &stride
+    ) {
+        bool linear = false;
+        return load(extension, address, size, colorFormat, width, height, stride, linear);
+    }
+
+    unsigned char* load(
+        const char* extension,
+        const unsigned char* address,
+        size_t size,
+        COLOR_FORMAT colorFormat,
+        int width,
+        int height
+    ) {
+        size_t stride = 0;
+        return load(extension, address, size, colorFormat, width, height, stride);
+    }
+
     M4IMAGE_API unsigned char* M4IMAGE_CALL save(
         const char* extension,
         const void* image,
         size_t &size,
+        COLOR_FORMAT colorFormat,
         int width,
         int height,
         size_t stride,
-        COLOR_FORMAT colorFormat,
         float quality
     ) {
         MAKE_SCOPE_EXIT(sizeScopeExit) {
@@ -929,14 +954,14 @@ namespace M4Image {
 
     M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
         const void* image,
+        COLOR_FORMAT inputColorFormat,
         int inputWidth,
         int inputHeight,
         size_t inputStride,
-        COLOR_FORMAT inputColorFormat,
+        COLOR_FORMAT outputColorFormat,
         int outputWidth,
         int outputHeight,
         size_t &outputStride,
-        COLOR_FORMAT outputColorFormat,
         bool linear
     ) {
         MAKE_SCOPE_EXIT(outputStrideScopeExit) {
@@ -1032,6 +1057,20 @@ namespace M4Image {
         return bits;
     }
 
+    M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
+        const void* image,
+        COLOR_FORMAT inputColorFormat,
+        int inputWidth,
+        int inputHeight,
+        size_t inputStride,
+        COLOR_FORMAT outputColorFormat,
+        int outputWidth,
+        int outputHeight
+    ) {
+        size_t outputStride = 0;
+        return blit(image, inputColorFormat, inputWidth, inputHeight, inputStride, outputColorFormat, outputWidth, outputHeight, outputStride);
+    }
+
     void* malloc(size_t size) {
         return mallocProc(size);
     }
@@ -1048,10 +1087,10 @@ namespace M4Image {
         const char* extension,
         const unsigned char* address,
         size_t size,
-        int* widthPointer,
-        int* heightPointer,
         uint32_t* bitsPointer,
-        bool* alphaPointer
+        bool* alphaPointer,
+        int* widthPointer,
+        int* heightPointer
     ) {
         if (!extension) {
             return false;
@@ -1069,20 +1108,20 @@ namespace M4Image {
 
         mango::image::ImageHeader imageHeader = imageDecoder.header();
 
-        if (widthPointer) {
-            *widthPointer = imageHeader.width;
-        }
-
-        if (heightPointer) {
-            *heightPointer = imageHeader.height;
-        }
-
         if (bitsPointer) {
             *bitsPointer = imageHeader.format.bits;
         }
 
         if (alphaPointer) {
             *alphaPointer = imageHeader.format.isAlpha();
+        }
+
+        if (widthPointer) {
+            *widthPointer = imageHeader.width;
+        }
+
+        if (heightPointer) {
+            *heightPointer = imageHeader.height;
         }
         return true;
     }
