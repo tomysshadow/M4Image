@@ -162,29 +162,30 @@ void grayscaleColors(M4Image::Color32* colorPointer, size_t width, size_t height
             rowPointer += stride;
             colorPointer = (M4Image::Color32*)rowPointer;
         }
-    } else {
-        unsigned short rLinear = 0;
-        unsigned short gLinear = 0;
-        unsigned short bLinear = 0;
+        return;
+    }
 
-        for (size_t i = 0; i < height; i++) {
-            for (size_t j = 0; j < width; j++) {
-                unsigned char &r = colorPointer->channels[CHANNEL_R];
-                unsigned char &g = colorPointer->channels[CHANNEL_G];
-                unsigned char &b = colorPointer->channels[CHANNEL_B];
+    unsigned short rLinear = 0;
+    unsigned short gLinear = 0;
+    unsigned short bLinear = 0;
 
-                // fast sRGB to linear approximation
-                // https://gamedev.stackexchange.com/a/105045/54039
-                rLinear = r * r;
-                gLinear = g * g;
-                bLinear = b * b;
+    for (size_t i = 0; i < height; i++) {
+        for (size_t j = 0; j < width; j++) {
+            unsigned char &r = colorPointer->channels[CHANNEL_R];
+            unsigned char &g = colorPointer->channels[CHANNEL_G];
+            unsigned char &b = colorPointer->channels[CHANNEL_B];
 
-                colorPointer++->channels[CHANNEL_L] = sqrt(((rLinear << 1) + rLinear + (gLinear << 2) + bLinear) >> 3);
-            }
+            // fast sRGB to linear approximation
+            // https://gamedev.stackexchange.com/a/105045/54039
+            rLinear = r * r;
+            gLinear = g * g;
+            bLinear = b * b;
 
-            rowPointer += stride;
-            colorPointer = (M4Image::Color32*)rowPointer;
+            colorPointer++->channels[CHANNEL_L] = sqrt(((rLinear << 1) + rLinear + (gLinear << 2) + bLinear) >> 3);
         }
+
+        rowPointer += stride;
+        colorPointer = (M4Image::Color32*)rowPointer;
     }
 }
 */
@@ -362,6 +363,7 @@ static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = FORMAT_MAP.at(M4Im
 mango::image::Format setFormat(mango::image::Format &format, M4Image::COLOR_FORMAT colorFormat) {
     const mango::image::Format &BLIT_FORMAT = FORMAT_MAP.at(colorFormat);
 
+    // LuminanceBitmap uses RGBA natively, so import to that if the blit format is luminance
     format = BLIT_FORMAT.isLuminance()
         ? IMAGE_HEADER_FORMAT_RGBA
         : BLIT_FORMAT;
@@ -372,14 +374,17 @@ void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::S
     std::optional<mango::image::LuminanceBitmap> luminanceBitmapOptional = std::nullopt;
 
     if (!inputSurface.format.isLuminance() && outputSurface.format.isLuminance()) {
-        luminanceBitmapOptional = mango::image::LuminanceBitmap(inputSurface, outputSurface.format.isAlpha(), linear);
+        luminanceBitmapOptional.emplace(inputSurface, outputSurface.format.isAlpha(), linear);
     }
 
     const mango::image::Surface &SOURCE_SURFACE = luminanceBitmapOptional.has_value() ? luminanceBitmapOptional.value() : inputSurface;
 
+    // if we can avoid a blit and do a direct memory copy, do that instead
+    // (it is assumed the caller has ensured the width/height match)
     bool direct = SOURCE_SURFACE.format == outputSurface.format
         && SOURCE_SURFACE.stride == outputSurface.stride;
 
+    // if we're direct and the image pointers match, they are already equal so copying is unnecessary
     if (direct && SOURCE_SURFACE.image == outputSurface.image) {
         return;
     }
@@ -421,7 +426,7 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
         freeSafe(surface.image);
     };
 
-    // uncomment the second argument to disable multithreading
+    // uncomment the second argument to disable multithreading for testing purposes
     mango::image::ImageDecodeStatus status = imageDecoder.decode(surface/*, {nullptr, true, false}*/);
 
     // status is false if decoding the image failed
@@ -429,17 +434,18 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
         MANGO_EXCEPTION("[INFO] {}", status.info);
     }
 
-    const mango::image::Surface INPUT_SURFACE = surface;
+    // for grayscale images we may need to blit them to a luminance format
+    mango::image::Surface inputSurface = surface;
 
     surface.format = blitFormat;
     surface.stride = blitStride;
 
-    blitSurfaceImage(INPUT_SURFACE, surface, linear);
+    blitSurfaceImage(inputSurface, surface, linear);
     surfaceImageScopeExit.dismiss();
 }
 
 unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const char* extension, size_t &size, float quality = 0.90f) {
-    AllocatorStream allocatorStream = AllocatorStream();
+    AllocatorStream allocatorStream;
     mango::image::ImageEncodeStatus status = surface.save(allocatorStream, extension, { {}, {}, quality });
 
     if (!status) {
@@ -796,12 +802,12 @@ namespace M4Image {
             outputColorFormat = getResizeColorFormat(outputColorFormat, sourceFormat, destinationFormat, inputColorFormat == M4Image::COLOR_FORMAT::RGBA32);
         }
 
-        mango::image::Surface outputSurface = mango::image::Surface();
+        mango::image::Surface outputSurface;
 
         try {
             const mango::image::Format &INPUT_FORMAT = FORMAT_MAP.at(inputColorFormat);
 
-            const mango::image::Surface INPUT_SURFACE = mango::image::Surface(
+            const mango::image::Surface INPUT_SURFACE(
                 inputWidth, inputHeight,
                 INPUT_FORMAT, inputStride ? inputStride : (size_t)inputWidth * (size_t)INPUT_FORMAT.bytes(),
                 image
@@ -916,7 +922,7 @@ namespace M4Image {
             colorFormat = getResizeColorFormat(colorFormat, sourceFormat, destinationFormat, imageHeader.format == IMAGE_HEADER_FORMAT_RGBA);
         }
 
-        mango::image::Surface surface = mango::image::Surface();
+        mango::image::Surface surface;
 
         try {
             const mango::image::Format &BLIT_FORMAT = setFormat(surface.format, colorFormat);
@@ -1029,7 +1035,7 @@ namespace M4Image {
         try {
             const mango::image::Format &FORMAT = FORMAT_MAP.at(colorFormat);
 
-            const mango::image::Surface SURFACE = mango::image::Surface(
+            const mango::image::Surface SURFACE(
                 width, height,
                 FORMAT, stride ? stride : (size_t)width * (size_t)FORMAT.bytes(),
                 image
