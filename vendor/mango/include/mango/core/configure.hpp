@@ -115,7 +115,12 @@
         #define MANGO_PLATFORM_OSX
         #define MANGO_PLATFORM_UNIX
         #define MANGO_PLATFORM_NAME "macOS"
-        #define MANGO_WINDOW_SYSTEM_COCOA
+
+        #if defined(__ppc__)
+            #define MANGO_WINDOW_SYSTEM_NONE
+        #else
+            #define MANGO_WINDOW_SYSTEM_COCOA
+        #endif
 
     #endif
 
@@ -136,9 +141,17 @@
     #define MANGO_PLATFORM_LINUX
     #define MANGO_PLATFORM_UNIX
     #define MANGO_PLATFORM_NAME "Linux"
-    #define MANGO_WINDOW_SYSTEM_XLIB
-    //#define MANGO_WINDOW_SYSTEM_XCB
-    //#define MANGO_WINDOW_SYSTEM_WAYLAND
+
+    #if defined(MANGO_ENABLE_XLIB)
+        #define MANGO_WINDOW_SYSTEM_XLIB
+    #elif defined(MANGO_ENABLE_XCB)
+        #define MANGO_WINDOW_SYSTEM_XCB
+    #elif defined(MANGO_ENABLE_WAYLAND)
+        #define MANGO_WINDOW_SYSTEM_WAYLAND
+    #else
+        // Linux defaults to XLIB when display library is not selected
+        #define MANGO_WINDOW_SYSTEM_XLIB
+    #endif
 
     #include <stdint.h>
     #include <malloc.h>

@@ -1,10 +1,12 @@
 #include "M4Image/M4Image.h"
 #include <map>
+#include <optional>
 #include <stdint.h>
 #include <math.h>
 
 #include <mango/image/surface.hpp>
 #include <mango/image/decoder.hpp>
+#include <mango/image/quantize.hpp>
 #include <pixman.h>
 
 static M4Image::MallocProc mallocProc = malloc;
@@ -136,50 +138,56 @@ void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t he
     }
 }
 
-void grayscaleColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool rgba, bool linear = false) {
-    size_t channelR = rgba ? 0 : 2;
-    size_t channelG = 1;
-    size_t channelB = rgba ? 2 : 0;
-
-    unsigned char l = 0;
-
-    unsigned short rLinear = 0;
-    unsigned short gLinear = 0;
-    unsigned short bLinear = 0;
+/*
+void grayscaleColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool linear = false) {
+    const size_t CHANNEL_R = 0;
+    const size_t CHANNEL_G = 1;
+    const size_t CHANNEL_B = 2;
+    const size_t CHANNEL_L = 2;
 
     unsigned char* rowPointer = (unsigned char*)colorPointer;
 
-    for (size_t i = 0; i < height; i++) {
-        for (size_t j = 0; j < width; j++) {
-            unsigned char &r = colorPointer->channels[channelR];
-            unsigned char &g = colorPointer->channels[channelG];
-            unsigned char &b = colorPointer->channels[channelB];
+    if (linear) {
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                unsigned char &r = colorPointer->channels[CHANNEL_R];
+                unsigned char &g = colorPointer->channels[CHANNEL_G];
+                unsigned char &b = colorPointer->channels[CHANNEL_B];
 
-            if (linear) {
                 // fast grayscale approximation
                 // https://stackoverflow.com/a/596241/3591734
-                l = ((r << 1) + r + (g << 2) + b) >> 3;
-            } else {
+                colorPointer++->channels[CHANNEL_L] = ((r << 1) + r + (g << 2) + b) >> 3;
+            }
+
+            rowPointer += stride;
+            colorPointer = (M4Image::Color32*)rowPointer;
+        }
+    } else {
+        unsigned short rLinear = 0;
+        unsigned short gLinear = 0;
+        unsigned short bLinear = 0;
+
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                unsigned char &r = colorPointer->channels[CHANNEL_R];
+                unsigned char &g = colorPointer->channels[CHANNEL_G];
+                unsigned char &b = colorPointer->channels[CHANNEL_B];
+
                 // fast sRGB to linear approximation
                 // https://gamedev.stackexchange.com/a/105045/54039
                 rLinear = r * r;
                 gLinear = g * g;
                 bLinear = b * b;
 
-                l = sqrt(((rLinear << 1) + rLinear + (gLinear << 2) + bLinear) >> 3);
+                colorPointer++->channels[CHANNEL_L] = sqrt(((rLinear << 1) + rLinear + (gLinear << 2) + bLinear) >> 3);
             }
 
-            r = l;
-            g = l;
-            b = l;
-
-            colorPointer++;
+            rowPointer += stride;
+            colorPointer = (M4Image::Color32*)rowPointer;
         }
-
-        rowPointer += stride;
-        colorPointer = (M4Image::Color32*)rowPointer;
     }
 }
+*/
 
 // the mango::core::MemoryStream class does not allow using a custom allocator
 // so we must implement our own
@@ -342,59 +350,67 @@ static const COLOR_FORMAT_MAP FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::BGRX32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 0)},
     {M4Image::COLOR_FORMAT::RGB24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::RGB, 8, 8, 8, 0)},
     {M4Image::COLOR_FORMAT::BGR24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::BGR, 8, 8, 8, 0)},
-    {M4Image::COLOR_FORMAT::AL16, mango::image::LuminanceFormat(16, mango::image::Format::UNORM, 8, 8)},
+    {M4Image::COLOR_FORMAT::AL16, mango::image::LuminanceFormat(16, 0x0000FF00, 0x000000FF)},
     {M4Image::COLOR_FORMAT::A8, mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0)},
-    {M4Image::COLOR_FORMAT::L8, mango::image::LuminanceFormat(8, mango::image::Format::UNORM, 8, 0)},
+    {M4Image::COLOR_FORMAT::L8, mango::image::LuminanceFormat(8, 0x000000FF, 0x00000000)},
     {M4Image::COLOR_FORMAT::XXXL32, mango::image::LuminanceFormat(32, 0xFF000000, 0x00000000)},
     {M4Image::COLOR_FORMAT::XXLA32, mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000)},
 };
 
-static const mango::image::Format LUMINANCE_FORMAT_RGBA32 = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
-static const mango::image::Format LUMINANCE_FORMAT_BGRA32 = FORMAT_MAP.at(M4Image::COLOR_FORMAT::BGRA32);
+static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
 
-mango::image::Format setFormat(mango::image::Format &format, M4Image::COLOR_FORMAT colorFormat, bool rgba) {
-    const mango::image::Format &GRAYSCALE_FORMAT = FORMAT_MAP.at(colorFormat);
+mango::image::Format setFormat(mango::image::Format &format, M4Image::COLOR_FORMAT colorFormat) {
+    const mango::image::Format &BLIT_FORMAT = FORMAT_MAP.at(colorFormat);
 
-    format = GRAYSCALE_FORMAT.isLuminance()
-        ? (
-            rgba
-            ? LUMINANCE_FORMAT_RGBA32
-            : LUMINANCE_FORMAT_BGRA32
-        )
-
-        : GRAYSCALE_FORMAT;
-    return GRAYSCALE_FORMAT;
+    format = BLIT_FORMAT.isLuminance()
+        ? IMAGE_HEADER_FORMAT_RGBA
+        : BLIT_FORMAT;
+    return BLIT_FORMAT;
 }
 
-size_t setSurfaceStride(mango::image::Surface &surface, const mango::image::Format &grayscaleFormat, size_t stride, bool resize) {
-    bool direct = stride && !resize;
-    bool color = !grayscaleFormat.isLuminance();
-    surface.stride = (direct && color) ? stride : surface.width * (size_t)surface.format.bytes();
-    return (direct || color) ? stride : surface.width * (size_t)grayscaleFormat.bytes();
-}
+void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface, bool linear = false) {
+    std::optional<mango::image::LuminanceBitmap> luminanceBitmapOptional = std::nullopt;
 
-void grayscaleSurfaceImage(mango::image::Surface &surface, const mango::image::Format &format, size_t stride, bool rgba, bool linear = false) {
-    if (!format.isLuminance()) {
+    if (!inputSurface.format.isLuminance() && outputSurface.format.isLuminance()) {
+        luminanceBitmapOptional = mango::image::LuminanceBitmap(inputSurface, outputSurface.format.isAlpha(), linear);
+    }
+
+    const mango::image::Surface &SOURCE_SURFACE = luminanceBitmapOptional.has_value() ? luminanceBitmapOptional.value() : inputSurface;
+
+    bool direct = SOURCE_SURFACE.format == outputSurface.format
+        && SOURCE_SURFACE.stride == outputSurface.stride;
+
+    if (direct && SOURCE_SURFACE.image == outputSurface.image) {
         return;
     }
 
-    grayscaleColors((M4Image::Color32*)surface.image, surface.width, surface.height, surface.stride, rgba, linear);
+    freeSafe(outputSurface.image);
 
-    mango::image::Surface grayscaleSurface = surface;
+    size_t outputSurfaceImageSize = outputSurface.stride * (size_t)outputSurface.height;
+    outputSurface.image = (mango::u8*)mallocProc(outputSurfaceImageSize);
 
-    SCOPE_EXIT {
-        freeSafe(grayscaleSurface.image);
+    if (!outputSurface.image) {
+        return;
+    }
+
+    MAKE_SCOPE_EXIT(outputSurfaceImageScopeExit) {
+        freeSafe(outputSurface.image);
     };
 
-    surface.format = format;
-    surface.stride = stride;
-    surface.image = (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
+    if (direct) {
+        if (memcpy_s(outputSurface.image, outputSurfaceImageSize, SOURCE_SURFACE.image, SOURCE_SURFACE.stride * (size_t)SOURCE_SURFACE.height)) {
+            return;
+        }
+    } else {
+        outputSurface.blit(0, 0, SOURCE_SURFACE);
+    }
 
-    surface.blit(0, 0, grayscaleSurface);
+    outputSurfaceImageScopeExit.dismiss();
 }
 
-void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba, bool linear = false) {
+void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder, const mango::image::Format &blitFormat, size_t blitStride, bool linear = false) {
     // allocate memory for the image
+    freeSafe(surface.image);
     surface.image = (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
 
     if (!surface.image) {
@@ -413,7 +429,12 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
         MANGO_EXCEPTION("[INFO] {}", status.info);
     }
 
-    grayscaleSurfaceImage(surface, grayscaleFormat, grayscaleStride, rgba, linear);
+    const mango::image::Surface INPUT_SURFACE = surface;
+
+    surface.format = blitFormat;
+    surface.stride = blitStride;
+
+    blitSurfaceImage(INPUT_SURFACE, surface, linear);
     surfaceImageScopeExit.dismiss();
 }
 
@@ -427,35 +448,6 @@ unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const ch
 
     size = allocatorStream.size();
     return allocatorStream.acquire();
-}
-
-void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface, const mango::image::Format &grayscaleFormat, size_t grayscaleStride, bool rgba, bool linear = false) {
-    size_t outputSurfaceImageSize = outputSurface.stride * (size_t)outputSurface.height;
-    outputSurface.image = (mango::u8*)mallocProc(outputSurfaceImageSize);
-
-    if (!outputSurface.image) {
-        return;
-    }
-
-    MAKE_SCOPE_EXIT(outputSurfaceImageScopeExit) {
-        freeSafe(outputSurface.image);
-    };
-
-    if (
-        inputSurface.format == outputSurface.format
-        && inputSurface.stride == outputSurface.stride
-        && inputSurface.width == outputSurface.width
-        && inputSurface.height == outputSurface.height
-    ) {
-        if (memcpy_s(outputSurface.image, outputSurfaceImageSize, inputSurface.image, inputSurface.stride * (size_t)inputSurface.height)) {
-            return;
-        }
-    } else {
-        outputSurface.blit(0, 0, inputSurface);
-    }
-
-    grayscaleSurfaceImage(outputSurface, grayscaleFormat, grayscaleStride, rgba, linear);
-    outputSurfaceImageScopeExit.dismiss();
 }
 
 typedef std::map<M4Image::COLOR_FORMAT, pixman_format_code_t> PIXMAN_FORMAT_CODE_MAP;
@@ -764,9 +756,111 @@ unsigned char* resizeImage(
     return bits;
 }
 
-static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
-
 namespace M4Image {
+    M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
+        const void* image,
+        COLOR_FORMAT inputColorFormat,
+        int inputWidth,
+        int inputHeight,
+        size_t inputStride,
+        COLOR_FORMAT outputColorFormat,
+        int outputWidth,
+        int outputHeight,
+        size_t &outputStride,
+        bool linear
+    ) {
+        MAKE_SCOPE_EXIT(outputStrideScopeExit) {
+            outputStride = 0;
+        };
+
+        if (!image) {
+            return 0;
+        }
+
+        if (!inputWidth || !inputHeight) {
+            return 0;
+        }
+
+        if (!outputWidth || !outputHeight) {
+            return 0;
+        }
+
+        pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
+        pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
+
+        bool resize = inputWidth != outputWidth || inputHeight != outputHeight;
+        bool convert = outputColorFormat == COLOR_FORMAT::AL16;
+        bool isAlpha = false;
+
+        if (resize) {
+            outputColorFormat = getResizeColorFormat(outputColorFormat, sourceFormat, destinationFormat, inputColorFormat == M4Image::COLOR_FORMAT::RGBA32);
+        }
+
+        mango::image::Surface outputSurface = mango::image::Surface();
+
+        try {
+            const mango::image::Format &INPUT_FORMAT = FORMAT_MAP.at(inputColorFormat);
+
+            const mango::image::Surface INPUT_SURFACE = mango::image::Surface(
+                inputWidth, inputHeight,
+                INPUT_FORMAT, inputStride ? inputStride : (size_t)inputWidth * (size_t)INPUT_FORMAT.bytes(),
+                image
+            );
+
+            isAlpha = INPUT_SURFACE.format.isAlpha();
+
+            // the resize is not done here, so the input width and height is used for the output surface
+            outputSurface.format = FORMAT_MAP.at(outputColorFormat);
+            outputSurface.width = inputWidth;
+            outputSurface.height = inputHeight;
+            outputSurface.stride = (outputStride && !resize) ? outputStride : outputSurface.width * (size_t)outputSurface.format.bytes();
+
+            blitSurfaceImage(INPUT_SURFACE, outputSurface, linear);
+        } catch (mango::Exception) {
+            return 0;
+        }
+
+        if (!outputSurface.image) {
+            return 0;
+        }
+
+        if (!resize) {
+            outputStride = outputSurface.stride;
+            outputStrideScopeExit.dismiss();
+            return outputSurface.image;
+        }
+
+        unsigned char* bits = resizeImage(
+            outputSurface,
+            outputWidth,
+            outputHeight,
+            outputStride,
+            convert,
+            isAlpha,
+            sourceFormat,
+            destinationFormat
+        );
+
+        if (bits) {
+            outputStrideScopeExit.dismiss();
+        }
+        return bits;
+    }
+
+    M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
+        const void* image,
+        COLOR_FORMAT inputColorFormat,
+        int inputWidth,
+        int inputHeight,
+        size_t inputStride,
+        COLOR_FORMAT outputColorFormat,
+        int outputWidth,
+        int outputHeight
+    ) {
+        size_t outputStride = 0;
+        return blit(image, inputColorFormat, inputWidth, inputHeight, inputStride, outputColorFormat, outputWidth, outputHeight, outputStride);
+    }
+
     unsigned char* load(
         const char* extension,
         const unsigned char* address,
@@ -814,34 +908,34 @@ namespace M4Image {
         pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
 
         bool resize = width != imageHeader.width || height != imageHeader.height;
+        bool aligned = stride && !resize;
         bool convert = colorFormat == COLOR_FORMAT::AL16;
-        bool rgba = imageHeader.format == IMAGE_HEADER_FORMAT_RGBA;
         linear = imageHeader.linear;
 
         if (resize) {
-            colorFormat = getResizeColorFormat(colorFormat, sourceFormat, destinationFormat, rgba);
+            colorFormat = getResizeColorFormat(colorFormat, sourceFormat, destinationFormat, imageHeader.format == IMAGE_HEADER_FORMAT_RGBA);
         }
 
         mango::image::Surface surface = mango::image::Surface();
 
         try {
-            const mango::image::Format &GRAYSCALE_FORMAT = setFormat(surface.format, colorFormat, rgba);
+            const mango::image::Format &BLIT_FORMAT = setFormat(surface.format, colorFormat);
+
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
+            surface.stride = (aligned && !BLIT_FORMAT.isLuminance()) ? stride : surface.width * (size_t)surface.format.bytes();
 
             decodeSurfaceImage(
                 surface,
                 imageDecoder,
-                GRAYSCALE_FORMAT,
+                BLIT_FORMAT,
 
-                setSurfaceStride(
-                    surface,
-                    GRAYSCALE_FORMAT,
-                    stride,
-                    resize
+                (
+                    aligned
+                    ? stride
+                    : surface.width * (size_t)BLIT_FORMAT.bytes()
                 ),
 
-                rgba,
                 linear
             );
         } catch (mango::Exception) {
@@ -950,125 +1044,6 @@ namespace M4Image {
             sizeScopeExit.dismiss();
         }
         return bits;
-    }
-
-    M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
-        const void* image,
-        COLOR_FORMAT inputColorFormat,
-        int inputWidth,
-        int inputHeight,
-        size_t inputStride,
-        COLOR_FORMAT outputColorFormat,
-        int outputWidth,
-        int outputHeight,
-        size_t &outputStride,
-        bool linear
-    ) {
-        MAKE_SCOPE_EXIT(outputStrideScopeExit) {
-            outputStride = 0;
-        };
-
-        if (!image) {
-            return 0;
-        }
-
-        if (!inputWidth || !inputHeight) {
-            return 0;
-        }
-
-        if (!outputWidth || !outputHeight) {
-            return 0;
-        }
-
-        pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
-        pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
-
-        bool resize = inputWidth != outputWidth || inputHeight != outputHeight;
-        bool convert = outputColorFormat == COLOR_FORMAT::AL16;
-        bool rgba = inputColorFormat == M4Image::COLOR_FORMAT::RGBA32;
-        bool isAlpha = false;
-
-        if (resize) {
-            outputColorFormat = getResizeColorFormat(outputColorFormat, sourceFormat, destinationFormat, rgba);
-        }
-
-        mango::image::Surface outputSurface = mango::image::Surface();
-
-        try {
-            const mango::image::Format &INPUT_FORMAT = FORMAT_MAP.at(inputColorFormat);
-
-            const mango::image::Surface INPUT_SURFACE = mango::image::Surface(
-                inputWidth, inputHeight,
-                INPUT_FORMAT, inputStride ? inputStride : (size_t)inputWidth * (size_t)INPUT_FORMAT.bytes(),
-                image
-            );
-
-            isAlpha = INPUT_SURFACE.format.isAlpha();
-
-            // the resize is not done here, so the input width and height is used for the output surface
-            const mango::image::Format &GRAYSCALE_FORMAT = setFormat(outputSurface.format, outputColorFormat, rgba);
-
-            outputSurface.width = inputWidth;
-            outputSurface.height = inputHeight;
-
-            blitSurfaceImage(
-                INPUT_SURFACE,
-                outputSurface,
-                GRAYSCALE_FORMAT,
-
-                setSurfaceStride(
-                    outputSurface,
-                    GRAYSCALE_FORMAT,
-                    outputStride,
-                    resize
-                ),
-
-                rgba,
-                linear
-            );
-        } catch (mango::Exception) {
-            return 0;
-        }
-
-        if (!outputSurface.image) {
-            return 0;
-        }
-
-        if (!resize) {
-            outputStride = outputSurface.stride;
-            outputStrideScopeExit.dismiss();
-            return outputSurface.image;
-        }
-
-        unsigned char* bits = resizeImage(
-            outputSurface,
-            outputWidth,
-            outputHeight,
-            outputStride,
-            convert,
-            isAlpha,
-            sourceFormat,
-            destinationFormat
-        );
-
-        if (bits) {
-            outputStrideScopeExit.dismiss();
-        }
-        return bits;
-    }
-
-    M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
-        const void* image,
-        COLOR_FORMAT inputColorFormat,
-        int inputWidth,
-        int inputHeight,
-        size_t inputStride,
-        COLOR_FORMAT outputColorFormat,
-        int outputWidth,
-        int outputHeight
-    ) {
-        size_t outputStride = 0;
-        return blit(image, inputColorFormat, inputWidth, inputHeight, inputStride, outputColorFormat, outputWidth, outputHeight, outputStride);
     }
 
     void* malloc(size_t size) {
