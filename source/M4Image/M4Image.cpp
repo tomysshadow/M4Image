@@ -908,7 +908,7 @@ namespace M4Image {
         pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
 
         bool resize = width != imageHeader.width || height != imageHeader.height;
-        bool aligned = stride && !resize;
+        bool strideValid = stride && !resize;
         bool convert = colorFormat == COLOR_FORMAT::AL16;
         linear = imageHeader.linear;
 
@@ -923,7 +923,7 @@ namespace M4Image {
 
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
-            surface.stride = (aligned && !BLIT_FORMAT.isLuminance()) ? stride : surface.width * (size_t)surface.format.bytes();
+            surface.stride = (strideValid && !BLIT_FORMAT.isLuminance()) ? stride : surface.width * (size_t)surface.format.bytes();
 
             decodeSurfaceImage(
                 surface,
@@ -931,7 +931,7 @@ namespace M4Image {
                 BLIT_FORMAT,
 
                 (
-                    aligned
+                    strideValid
                     ? stride
                     : surface.width * (size_t)BLIT_FORMAT.bytes()
                 ),
