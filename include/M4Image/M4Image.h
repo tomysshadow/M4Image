@@ -32,6 +32,10 @@ namespace M4Image {
         XXLA32
     };
 
+    M4IMAGE_API void* M4IMAGE_CALL malloc(size_t size);
+    M4IMAGE_API void M4IMAGE_CALL free(void* block);
+    M4IMAGE_API void* M4IMAGE_CALL realloc(void* block, size_t size);
+
     // note: extension is a string but we export it as const char* because
     // you're not supposed to export STL classes across DLL boundaries
     M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
@@ -44,7 +48,8 @@ namespace M4Image {
         int outputWidth,
         int outputHeight,
         size_t &outputStride,
-        bool linear = false
+        bool linear = false,
+        bool premultiplied = false
     );
 
     M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
@@ -56,6 +61,18 @@ namespace M4Image {
         COLOR_FORMAT outputColorFormat,
         int outputWidth,
         int outputHeight
+    );
+
+    M4IMAGE_API unsigned char* M4IMAGE_CALL load(
+        const char* extension,
+        const unsigned char* address,
+        size_t size,
+        COLOR_FORMAT colorFormat,
+        int width,
+        int height,
+        size_t &stride,
+        bool &linear,
+        bool &premultiplied
     );
 
     M4IMAGE_API unsigned char* M4IMAGE_CALL load(
@@ -99,10 +116,6 @@ namespace M4Image {
         float quality = 0.90f
     );
 
-    M4IMAGE_API void* M4IMAGE_CALL malloc(size_t size);
-    M4IMAGE_API void M4IMAGE_CALL free(void* block);
-    M4IMAGE_API void* M4IMAGE_CALL realloc(void* block, size_t size);
-
     M4IMAGE_API bool M4IMAGE_CALL getInfo(
         const char* extension,
         const unsigned char* address,
@@ -110,7 +123,9 @@ namespace M4Image {
         uint32_t* bitsPointer,
         bool* alphaPointer,
         int* widthPointer,
-        int* heightPointer
+        int* heightPointer,
+        bool* linearPointer,
+        bool* premultipliedPointer
     );
 
     M4IMAGE_API void M4IMAGE_CALL setAllocator(MallocProc mallocProc, FreeProc freeProc, ReallocProc reallocProc);

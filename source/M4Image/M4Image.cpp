@@ -625,7 +625,7 @@ unsigned char* resizeImage(
     int height,
     size_t &stride,
     bool convert,
-    bool isAlpha,
+    bool premultiplied,
     pixman_format_code_t sourceFormat,
     pixman_format_code_t destinationFormat
 ) {
@@ -690,13 +690,13 @@ unsigned char* resizeImage(
     // -the source format is PIXMAN_x8r8g8b8 (indicating we are meant to use it with maskImage)
     // -the destination format has alpha (because otherwise the colours will be unaffected by alpha)
     // -the destination format has RGB channels (because otherwise the colour data will be thrown out anyway)
-    // -the image format is alpha (so we aren't creating an alpha channel for an opaque image)
+    // -the image format isn't already premultiplied (then it's the caller's problem)
     // we don't care about if the surface has alpha here
     // the source format will be PIXMAN_x8r8g8b8 if it does/it matters
     bool unpremultiply = sourceFormat == PIXMAN_x8r8g8b8
         && PIXMAN_FORMAT_A(destinationFormat)
         && PIXMAN_FORMAT_COLOR(destinationFormat)
-        && isAlpha;
+        && !premultiplied;
 
     // premultiply, only if we'll undo it later, and if the original image wasn't already premultiplied
     pixman_image_t* maskImage = unpremultiply
@@ -763,6 +763,18 @@ unsigned char* resizeImage(
 }
 
 namespace M4Image {
+    void* malloc(size_t size) {
+        return mallocProc(size);
+    }
+
+    void free(void* block) {
+        freeProc(block);
+    }
+
+    void* realloc(void* block, size_t size) {
+        return reallocProc(block, size);
+    }
+
     M4IMAGE_API unsigned char* M4IMAGE_CALL blit(
         const void* image,
         COLOR_FORMAT inputColorFormat,
@@ -773,7 +785,8 @@ namespace M4Image {
         int outputWidth,
         int outputHeight,
         size_t &outputStride,
-        bool linear
+        bool linear,
+        bool premultiplied
     ) {
         MAKE_SCOPE_EXIT(outputStrideScopeExit) {
             outputStride = 0;
@@ -796,7 +809,6 @@ namespace M4Image {
 
         bool resize = inputWidth != outputWidth || inputHeight != outputHeight;
         bool convert = outputColorFormat == COLOR_FORMAT::AL16;
-        bool isAlpha = false;
 
         if (resize) {
             outputColorFormat = getResizeColorFormat(outputColorFormat, sourceFormat, destinationFormat, inputColorFormat == M4Image::COLOR_FORMAT::RGBA32);
@@ -813,7 +825,10 @@ namespace M4Image {
                 image
             );
 
-            isAlpha = INPUT_SURFACE.format.isAlpha();
+            // for our purposes, if the image is opaque, it is as if the image were premultiplied
+            // this is an implementation detail, though, so this is only fine to do this way because
+            // premultiplied is not an out param for the blit method
+            premultiplied = premultiplied || !INPUT_SURFACE.format.isAlpha();
 
             // the resize is not done here, so the input width and height is used for the output surface
             outputSurface.format = FORMAT_MAP.at(outputColorFormat);
@@ -842,7 +857,7 @@ namespace M4Image {
             outputHeight,
             outputStride,
             convert,
-            isAlpha,
+            premultiplied,
             sourceFormat,
             destinationFormat
         );
@@ -875,7 +890,8 @@ namespace M4Image {
         int width,
         int height,
         size_t &stride,
-        bool &linear
+        bool &linear,
+        bool &premultiplied
     ) {
         MAKE_SCOPE_EXIT(strideScopeExit) {
             stride = 0;
@@ -883,6 +899,10 @@ namespace M4Image {
 
         MAKE_SCOPE_EXIT(linearScopeExit) {
             linear = false;
+        };
+
+        MAKE_SCOPE_EXIT(premultipliedScopeExit) {
+            premultiplied = false;
         };
 
         if (!extension) {
@@ -905,11 +925,6 @@ namespace M4Image {
 
         mango::image::ImageHeader imageHeader = imageDecoder.header();
 
-        // don't care, not implemented
-        if (imageHeader.premultiplied) {
-            return 0;
-        }
-
         pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
         pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
 
@@ -917,6 +932,7 @@ namespace M4Image {
         bool strideValid = stride && !resize;
         bool convert = colorFormat == COLOR_FORMAT::AL16;
         linear = imageHeader.linear;
+        premultiplied = imageHeader.premultiplied;
 
         if (resize) {
             colorFormat = getResizeColorFormat(colorFormat, sourceFormat, destinationFormat, imageHeader.format == IMAGE_HEADER_FORMAT_RGBA);
@@ -956,27 +972,45 @@ namespace M4Image {
         // if we don't need to resize the image (width and height matches) then job done
         if (!resize) {
             stride = surface.stride;
+            premultipliedScopeExit.dismiss();
             linearScopeExit.dismiss();
             strideScopeExit.dismiss();
             return surface.image;
         }
         
+        // here we use the same trick where if the image is opaque, we say it's premultiplied
+        // however the caller should not get to know this
         unsigned char* bits = resizeImage(
             surface,
             width,
             height,
             stride,
             convert,
-            imageHeader.format.isAlpha(),
+            premultiplied || !imageHeader.format.isAlpha(),
             sourceFormat,
             destinationFormat
         );
 
         if (bits) {
+            premultipliedScopeExit.dismiss();
             linearScopeExit.dismiss();
             strideScopeExit.dismiss();
         }
         return bits;
+    }
+
+    unsigned char* load(
+        const char* extension,
+        const unsigned char* address,
+        size_t size,
+        COLOR_FORMAT colorFormat,
+        int width,
+        int height,
+        size_t &stride,
+        bool &linear
+    ) {
+        bool premultiplied = false;
+        return load(extension, address, size, colorFormat, width, height, stride, linear, premultiplied);
     }
 
     unsigned char* load(
@@ -1052,18 +1086,6 @@ namespace M4Image {
         return bits;
     }
 
-    void* malloc(size_t size) {
-        return mallocProc(size);
-    }
-
-    void free(void* block) {
-        freeProc(block);
-    }
-
-    void* realloc(void* block, size_t size) {
-        return reallocProc(block, size);
-    }
-
     bool getInfo(
         const char* extension,
         const unsigned char* address,
@@ -1071,7 +1093,9 @@ namespace M4Image {
         uint32_t* bitsPointer,
         bool* alphaPointer,
         int* widthPointer,
-        int* heightPointer
+        int* heightPointer,
+        bool* linearPointer,
+        bool* premultipliedPointer
     ) {
         if (!extension) {
             return false;
@@ -1103,6 +1127,14 @@ namespace M4Image {
 
         if (heightPointer) {
             *heightPointer = imageHeader.height;
+        }
+
+        if (linearPointer) {
+            *linearPointer = imageHeader.linear;
+        }
+
+        if (premultipliedPointer) {
+            *premultipliedPointer = imageHeader.premultiplied;
         }
         return true;
     }
