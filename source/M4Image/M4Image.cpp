@@ -724,6 +724,7 @@ unsigned char* resizeImage(
         }
 
         convertColors(image, (M4Image::Color32*)bits, width, height, stride, unpremultiply);
+        return image;
     } else {
         stride = bitsStride;
 
@@ -733,7 +734,7 @@ unsigned char* resizeImage(
     }
 
     bitsScopeExit.dismiss();
-    return bits ? bits : image;
+    return bits;
 }
 
 namespace M4Image {
@@ -856,8 +857,7 @@ namespace M4Image {
         return blit(image, inputColorFormat, inputWidth, inputHeight, inputStride, outputColorFormat, outputWidth, outputHeight, outputStride);
     }
 
-    bool load(
-        unsigned char* image,
+    unsigned char* load(
         const char* extension,
         const unsigned char* address,
         size_t size,
@@ -866,6 +866,7 @@ namespace M4Image {
         int height,
         bool &linear,
         bool &premultiplied,
+        unsigned char* image,
         size_t stride
     ) {
         MAKE_SCOPE_EXIT(linearScopeExit) {
@@ -876,26 +877,22 @@ namespace M4Image {
             premultiplied = false;
         };
 
-        if (!image) {
-            return false;
-        }
-
         if (!extension) {
-            return false;
+            return 0;
         }
 
         if (!address) {
-            return false;
+            return 0;
         }
 
         if (!width || !height) {
-            return false;
+            return 0;
         }
 
         mango::image::ImageDecoder imageDecoder(mango::ConstMemory(address, size), extension);
 
         if (!imageDecoder.isDecoder()) {
-            return false;
+            return 0;
         }
 
         mango::image::ImageHeader imageHeader = imageDecoder.header();
@@ -927,7 +924,7 @@ namespace M4Image {
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
             surface.stride = (strideValid && !BLIT_FORMAT.isLuminance()) ? stride : surface.width * (size_t)surface.format.bytes();
-            surface.image = resize ? (mango::u8*)mallocProc(surface.stride * (size_t)surface.height) : image;
+            surface.image = (image && !resize) ? image : (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
 
             decodeSurfaceImage(
                 surface,
@@ -943,41 +940,38 @@ namespace M4Image {
                 linear
             );
         } catch (mango::Exception) {
-            return false;
+            return 0;
         }
 
         // if we don't need to resize the image (width and height matches) then job done
         if (!resize) {
             premultipliedScopeExit.dismiss();
             linearScopeExit.dismiss();
-            return true;
+            return surface.image;
         }
         
         // here we use the same trick where if the image is opaque, we say it's premultiplied
         // however the caller should not get to know this
-        if (
-            !resizeImage(
-                surface,
-                width,
-                height,
-                stride,
-                convert,
-                premultiplied || !imageHeader.format.isAlpha(),
-                sourceFormat,
-                destinationFormat,
-                image
-            )
-        ) {
-            return false;
-        }
+        unsigned char* bits = resizeImage(
+            surface,
+            width,
+            height,
+            stride,
+            convert,
+            premultiplied || !imageHeader.format.isAlpha(),
+            sourceFormat,
+            destinationFormat,
+            image
+        );
 
-        premultipliedScopeExit.dismiss();
-        linearScopeExit.dismiss();
-        return true;
+        if (bits) {
+            premultipliedScopeExit.dismiss();
+            linearScopeExit.dismiss();
+        }
+        return bits;
     }
 
-    bool load(
-        unsigned char* image,
+    unsigned char* load(
         const char* extension,
         const unsigned char* address,
         size_t size,
@@ -987,11 +981,10 @@ namespace M4Image {
         bool &linear
     ) {
         bool premultiplied = false;
-        return load(image, extension, address, size, colorFormat, width, height, linear, premultiplied);
+        return load(extension, address, size, colorFormat, width, height, linear, premultiplied);
     }
 
-    bool load(
-        unsigned char* image,
+    unsigned char* load(
         const char* extension,
         const unsigned char* address,
         size_t size,
@@ -1000,7 +993,7 @@ namespace M4Image {
         int height
     ) {
         bool linear = false;
-        return load(image, extension, address, size, colorFormat, width, height, linear);
+        return load(extension, address, size, colorFormat, width, height, linear);
     }
 
     M4IMAGE_API unsigned char* M4IMAGE_CALL save(
