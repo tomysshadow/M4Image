@@ -96,8 +96,8 @@ namespace M4Image {
     );
 
     M4IMAGE_API unsigned char* M4IMAGE_CALL save(
-        const char* extension,
         const void* image,
+        const char* extension,
         size_t &size,
         COLOR_FORMAT colorFormat,
         int width,

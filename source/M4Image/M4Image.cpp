@@ -809,7 +809,7 @@ namespace M4Image {
             outputSurface.format = FORMAT_MAP.at(outputColorFormat);
             outputSurface.width = inputWidth;
             outputSurface.height = inputHeight;
-            outputSurface.stride = (outputStride && !resize) ? outputStride : outputSurface.width * (size_t)outputSurface.format.bytes();
+            outputSurface.stride = (outputStride && !resize) ? outputStride : (size_t)outputSurface.width * (size_t)outputSurface.format.bytes();
 
             blitSurfaceImage(INPUT_SURFACE, outputSurface, linear);
         } catch (mango::Exception) {
@@ -923,7 +923,7 @@ namespace M4Image {
 
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
-            surface.stride = (strideValid && !BLIT_FORMAT.isLuminance()) ? stride : surface.width * (size_t)surface.format.bytes();
+            surface.stride = (strideValid && !BLIT_FORMAT.isLuminance()) ? stride : (size_t)surface.width * (size_t)surface.format.bytes();
             surface.image = (image && !resize) ? image : (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
 
             decodeSurfaceImage(
@@ -934,7 +934,7 @@ namespace M4Image {
                 (
                     strideValid
                     ? stride
-                    : surface.width * (size_t)BLIT_FORMAT.bytes()
+                    : (size_t)surface.width * (size_t)BLIT_FORMAT.bytes()
                 ),
 
                 linear
@@ -997,8 +997,8 @@ namespace M4Image {
     }
 
     M4IMAGE_API unsigned char* M4IMAGE_CALL save(
-        const char* extension,
         const void* image,
+        const char* extension,
         size_t &size,
         COLOR_FORMAT colorFormat,
         int width,
