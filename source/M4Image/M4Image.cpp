@@ -62,22 +62,18 @@ void createChannelUnpremultiplier() {
 
 #define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER[((channel) << CHAR_BIT) | (alpha)])
 
-unsigned char* convertColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride, bool unpremultiply) {
+void convertColors(
+    unsigned char* image,
+    M4Image::Color32* colorPointer,
+    size_t width,
+    size_t height,
+    size_t stride,
+    bool unpremultiply
+) {
     const size_t CHANNEL_LUMINANCE = 2;
     const size_t CHANNEL_ALPHA = 3;
 
-    unsigned char* bits = (unsigned char*)mallocProc((size_t)height * stride);
-
-    if (!bits) {
-        return 0;
-    }
-
-    MAKE_SCOPE_EXIT(bitsScopeExit) {
-        freeSafe(bits);
-    };
-
-    unsigned char* rowPointer = bits;
-    M4Image::Color16* luminancePointer = (M4Image::Color16*)rowPointer;
+    M4Image::Color16* luminancePointer = (M4Image::Color16*)image;
 
     if (unpremultiply) {
         createChannelUnpremultiplier();
@@ -95,8 +91,8 @@ unsigned char* convertColors(M4Image::Color32* colorPointer, size_t width, size_
                 luminancePointer++;
             }
 
-            rowPointer += stride;
-            luminancePointer = (M4Image::Color16*)rowPointer;
+            image += stride;
+            luminancePointer = (M4Image::Color16*)image;
         }
     } else {
         for (size_t i = 0; i < height; i++) {
@@ -104,13 +100,10 @@ unsigned char* convertColors(M4Image::Color32* colorPointer, size_t width, size_
                 *luminancePointer++ = *(M4Image::Color16*)&colorPointer++->channels[CHANNEL_LUMINANCE];
             }
 
-            rowPointer += stride;
-            luminancePointer = (M4Image::Color16*)rowPointer;
+            image += stride;
+            luminancePointer = (M4Image::Color16*)image;
         }
     }
-
-    bitsScopeExit.dismiss();
-    return bits;
 }
 
 void unpremultiplyColors(M4Image::Color32* colorPointer, size_t width, size_t height, size_t stride) {
@@ -414,18 +407,6 @@ void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::S
 }
 
 void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder, const mango::image::Format &blitFormat, size_t blitStride, bool linear = false) {
-    // allocate memory for the image
-    freeSafe(surface.image);
-    surface.image = (mango::u8*)mallocProc(surface.stride * (size_t)surface.height);
-
-    if (!surface.image) {
-        return;
-    }
-
-    MAKE_SCOPE_EXIT(surfaceImageScopeExit) {
-        freeSafe(surface.image);
-    };
-
     // uncomment the second argument to disable multithreading for testing purposes
     mango::image::ImageDecodeStatus status = imageDecoder.decode(surface/*, {nullptr, true, false}*/);
 
@@ -441,7 +422,6 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
     surface.stride = blitStride;
 
     blitSurfaceImage(inputSurface, surface, linear);
-    surfaceImageScopeExit.dismiss();
 }
 
 unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const char* extension, size_t &size, float quality = 0.90f) {
@@ -623,11 +603,12 @@ unsigned char* resizeImage(
     mango::image::Surface &surface,
     int width,
     int height,
-    size_t &stride,
+    size_t stride,
     bool convert,
     bool premultiplied,
     pixman_format_code_t sourceFormat,
-    pixman_format_code_t destinationFormat
+    pixman_format_code_t destinationFormat,
+    unsigned char* image = 0
 ) {
     // otherwise we have to do a bunch of boilerplate setup stuff for the resize operation
     SCOPE_EXIT {
@@ -640,14 +621,16 @@ unsigned char* resizeImage(
     // if we aren't converting, we expect to get the destination image in the user requested stride
     // if we are converting, we expect it to be based on the format, for convenience's sake
     size_t bitsStride = (stride && !convert) ? stride : (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width;
-    unsigned char* bits = (unsigned char*)mallocProc(bitsStride * (size_t)height);
+    unsigned char* bits = (image && !convert) ? image : (unsigned char*)mallocProc(bitsStride * (size_t)height);
 
     if (!bits) {
         return 0;
     }
 
     MAKE_SCOPE_EXIT(bitsScopeExit) {
-        freeSafe(bits);
+        if (bits != image) {
+            freeSafe(bits);
+        }
     };
 
     // create the destination image in the user's desired format
@@ -740,16 +723,7 @@ unsigned char* resizeImage(
             stride = (size_t)width * COLOR16_SIZE;
         }
 
-        unsigned char* convertedBits = convertColors((M4Image::Color32*)bits, width, height, stride, unpremultiply);
-
-        if (!convertedBits) {
-            return 0;
-        }
-
-        // this is necessary so that, if an error occurs with unreffing the images
-        // that we return zero, because bits will become set to zero
-        freeSafe(bits);
-        bits = convertedBits;
+        convertColors(image, (M4Image::Color32*)bits, width, height, stride, unpremultiply);
     } else {
         stride = bitsStride;
 
@@ -759,7 +733,7 @@ unsigned char* resizeImage(
     }
 
     bitsScopeExit.dismiss();
-    return bits;
+    return bits ? bits : image;
 }
 
 namespace M4Image {
@@ -882,21 +856,18 @@ namespace M4Image {
         return blit(image, inputColorFormat, inputWidth, inputHeight, inputStride, outputColorFormat, outputWidth, outputHeight, outputStride);
     }
 
-    unsigned char* load(
+    bool load(
+        unsigned char* image,
         const char* extension,
         const unsigned char* address,
         size_t size,
         COLOR_FORMAT colorFormat,
         int width,
         int height,
-        size_t &stride,
         bool &linear,
-        bool &premultiplied
+        bool &premultiplied,
+        size_t stride
     ) {
-        MAKE_SCOPE_EXIT(strideScopeExit) {
-            stride = 0;
-        };
-
         MAKE_SCOPE_EXIT(linearScopeExit) {
             linear = false;
         };
@@ -905,22 +876,26 @@ namespace M4Image {
             premultiplied = false;
         };
 
+        if (!image) {
+            return false;
+        }
+
         if (!extension) {
-            return 0;
+            return false;
         }
 
         if (!address) {
-            return 0;
+            return false;
         }
 
         if (!width || !height) {
-            return 0;
+            return false;
         }
 
         mango::image::ImageDecoder imageDecoder(mango::ConstMemory(address, size), extension);
 
         if (!imageDecoder.isDecoder()) {
-            return 0;
+            return false;
         }
 
         mango::image::ImageHeader imageHeader = imageDecoder.header();
@@ -940,12 +915,19 @@ namespace M4Image {
 
         mango::image::Surface surface;
 
+        SCOPE_EXIT {
+            if (surface.image != image) {
+                freeSafe(surface.image);
+            }
+        };
+
         try {
             const mango::image::Format &BLIT_FORMAT = setFormat(surface.format, colorFormat);
 
             surface.width = imageHeader.width;
             surface.height = imageHeader.height;
             surface.stride = (strideValid && !BLIT_FORMAT.isLuminance()) ? stride : surface.width * (size_t)surface.format.bytes();
+            surface.image = resize ? (mango::u8*)mallocProc(surface.stride * (size_t)surface.height) : image;
 
             decodeSurfaceImage(
                 surface,
@@ -961,72 +943,55 @@ namespace M4Image {
                 linear
             );
         } catch (mango::Exception) {
-            freeSafe(surface.image);
-            return 0;
-        }
-
-        if (!surface.image) {
-            return 0;
+            return false;
         }
 
         // if we don't need to resize the image (width and height matches) then job done
         if (!resize) {
-            stride = surface.stride;
             premultipliedScopeExit.dismiss();
             linearScopeExit.dismiss();
-            strideScopeExit.dismiss();
-            return surface.image;
+            return true;
         }
         
         // here we use the same trick where if the image is opaque, we say it's premultiplied
         // however the caller should not get to know this
-        unsigned char* bits = resizeImage(
-            surface,
-            width,
-            height,
-            stride,
-            convert,
-            premultiplied || !imageHeader.format.isAlpha(),
-            sourceFormat,
-            destinationFormat
-        );
-
-        if (bits) {
-            premultipliedScopeExit.dismiss();
-            linearScopeExit.dismiss();
-            strideScopeExit.dismiss();
+        if (
+            !resizeImage(
+                surface,
+                width,
+                height,
+                stride,
+                convert,
+                premultiplied || !imageHeader.format.isAlpha(),
+                sourceFormat,
+                destinationFormat,
+                image
+            )
+        ) {
+            return false;
         }
-        return bits;
+
+        premultipliedScopeExit.dismiss();
+        linearScopeExit.dismiss();
+        return true;
     }
 
-    unsigned char* load(
+    bool load(
+        unsigned char* image,
         const char* extension,
         const unsigned char* address,
         size_t size,
         COLOR_FORMAT colorFormat,
         int width,
         int height,
-        size_t &stride,
         bool &linear
     ) {
         bool premultiplied = false;
-        return load(extension, address, size, colorFormat, width, height, stride, linear, premultiplied);
+        return load(image, extension, address, size, colorFormat, width, height, linear, premultiplied);
     }
 
-    unsigned char* load(
-        const char* extension,
-        const unsigned char* address,
-        size_t size,
-        COLOR_FORMAT colorFormat,
-        int width,
-        int height,
-        size_t &stride
-    ) {
-        bool linear = false;
-        return load(extension, address, size, colorFormat, width, height, stride, linear);
-    }
-
-    unsigned char* load(
+    bool load(
+        unsigned char* image,
         const char* extension,
         const unsigned char* address,
         size_t size,
@@ -1034,8 +999,8 @@ namespace M4Image {
         int width,
         int height
     ) {
-        size_t stride = 0;
-        return load(extension, address, size, colorFormat, width, height, stride);
+        bool linear = false;
+        return load(image, extension, address, size, colorFormat, width, height, linear);
     }
 
     M4IMAGE_API unsigned char* M4IMAGE_CALL save(

@@ -63,40 +63,32 @@ namespace M4Image {
         int outputHeight
     );
 
-    M4IMAGE_API unsigned char* M4IMAGE_CALL load(
+    M4IMAGE_API bool M4IMAGE_CALL load(
+        unsigned char* image,
         const char* extension,
         const unsigned char* address,
         size_t size,
         COLOR_FORMAT colorFormat,
         int width,
         int height,
-        size_t &stride,
         bool &linear,
-        bool &premultiplied
+        bool &premultiplied,
+        size_t stride = 0
     );
 
-    M4IMAGE_API unsigned char* M4IMAGE_CALL load(
+    M4IMAGE_API bool M4IMAGE_CALL load(
+        unsigned char* image,
         const char* extension,
         const unsigned char* address,
         size_t size,
         COLOR_FORMAT colorFormat,
         int width,
         int height,
-        size_t &stride,
         bool &linear
     );
 
-    M4IMAGE_API unsigned char* M4IMAGE_CALL load(
-        const char* extension,
-        const unsigned char* address,
-        size_t size,
-        COLOR_FORMAT colorFormat,
-        int width,
-        int height,
-        size_t &stride
-    );
-
-    M4IMAGE_API unsigned char* M4IMAGE_CALL load(
+    M4IMAGE_API bool M4IMAGE_CALL load(
+        unsigned char* image,
         const char* extension,
         const unsigned char* address,
         size_t size,
