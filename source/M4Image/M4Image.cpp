@@ -400,8 +400,8 @@ void blitSurfaceImage(
 }
 
 void decodeSurfaceImage(
+    const mango::image::Surface &luminanceSurface,
     mango::image::Surface &surface,
-    mango::image::Surface &luminanceSurface,
     mango::image::ImageDecoder &imageDecoder,
     bool linear = false
 ) {
@@ -423,6 +423,10 @@ unsigned char* encodeSurfaceImage(
     size_t &size,
     float quality = 0.90f
 ) {
+    MAKE_SCOPE_EXIT(sizeScopeExit) {
+        size = 0;
+    };
+
     AllocatorStream allocatorStream;
     mango::image::ImageEncodeStatus status = surface.save(allocatorStream, extension, { {}, {}, quality });
 
@@ -437,6 +441,8 @@ unsigned char* encodeSurfaceImage(
     if (!bits) {
         throw std::bad_alloc();
     }
+
+    sizeScopeExit.dismiss();
     return bits;
 }
 
@@ -968,7 +974,7 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
             }
         }
 
-        mango::image::Surface luminanceSurface(
+        const mango::image::Surface LUMINANCE_SURFACE(
             imageHeader.width, imageHeader.height,
             LUMINANCE_SURFACE_FORMAT, luminanceSurfaceStride,
             luminanceSurfaceImage ? luminanceSurfaceImage.get() : surface.image
@@ -976,8 +982,8 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
 
         try {
             decodeSurfaceImage(
+                LUMINANCE_SURFACE,
                 surface,
-                luminanceSurface,
                 imageDecoder,
                 linear
             );
