@@ -371,7 +371,11 @@ static const COLOR_FORMAT_MAP FORMAT_MAP = {
 
 static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
 
-void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::Surface &outputSurface, bool linear = false) {
+void blitSurfaceImage(
+    const mango::image::Surface &inputSurface,
+    mango::image::Surface &outputSurface,
+    bool linear = false
+) {
     std::optional<mango::image::LuminanceBitmap> luminanceBitmapOptional = std::nullopt;
 
     if (!inputSurface.format.isLuminance() && outputSurface.format.isLuminance()) {
@@ -399,7 +403,13 @@ void blitSurfaceImage(const mango::image::Surface &inputSurface, mango::image::S
     }
 }
 
-void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecoder &imageDecoder, const mango::image::Format &blitFormat, size_t blitStride, bool linear = false) {
+void decodeSurfaceImage(
+    mango::image::Surface &surface,
+    mango::image::ImageDecoder &imageDecoder,
+    const mango::image::Format &blitFormat,
+    size_t blitStride,
+    bool linear = false
+) {
     // uncomment the second argument to disable multithreading for testing purposes
     mango::image::ImageDecodeStatus status = imageDecoder.decode(surface/*, {nullptr, true, false}*/);
 
@@ -417,7 +427,12 @@ void decodeSurfaceImage(mango::image::Surface &surface, mango::image::ImageDecod
     blitSurfaceImage(inputSurface, surface, linear);
 }
 
-unsigned char* encodeSurfaceImage(const mango::image::Surface &surface, const char* extension, size_t &size, float quality = 0.90f) {
+unsigned char* encodeSurfaceImage(
+    const mango::image::Surface &surface,
+    const char* extension,
+    size_t &size,
+    float quality = 0.90f
+) {
     AllocatorStream allocatorStream;
     mango::image::ImageEncodeStatus status = surface.save(allocatorStream, extension, { {}, {}, quality });
 
