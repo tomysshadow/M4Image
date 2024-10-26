@@ -385,17 +385,14 @@ void blitSurfaceImage(
 
     // if we can avoid a blit and do a direct memory copy, do that instead
     // (it is assumed the caller has ensured the width/height match)
-    bool direct = SOURCE_SURFACE.format == outputSurface.format
-        && SOURCE_SURFACE.stride == outputSurface.stride;
-
-    // if we're direct and the image pointers match, they are already equal so copying is unnecessary
-    if (direct && SOURCE_SURFACE.image == outputSurface.image) {
-        return;
-    }
-
-    if (direct) {
-        if (memcpy_s(outputSurface.image, outputSurface.stride * (size_t)outputSurface.height, SOURCE_SURFACE.image, SOURCE_SURFACE.stride * (size_t)SOURCE_SURFACE.height)) {
+    if (SOURCE_SURFACE.format == outputSurface.format && SOURCE_SURFACE.stride == outputSurface.stride) {
+        // if we're direct and the image pointers match, they are already equal so copying is unnecessary
+        if (SOURCE_SURFACE.image == outputSurface.image) {
             return;
+        }
+
+        if (memcpy_s(outputSurface.image, outputSurface.stride * (size_t)outputSurface.height, SOURCE_SURFACE.image, SOURCE_SURFACE.stride * (size_t)SOURCE_SURFACE.height)) {
+            throw std::runtime_error("Failed to Copy Memory");
         }
     } else {
         outputSurface.blit(0, 0, SOURCE_SURFACE);
@@ -404,13 +401,12 @@ void blitSurfaceImage(
 
 void decodeSurfaceImage(
     mango::image::Surface &surface,
+    mango::image::Surface &luminanceSurface,
     mango::image::ImageDecoder &imageDecoder,
-    const mango::image::Format &blitFormat,
-    size_t blitStride,
     bool linear = false
 ) {
     // uncomment the second argument to disable multithreading for testing purposes
-    mango::image::ImageDecodeStatus status = imageDecoder.decode(surface/*, {nullptr, true, false}*/);
+    mango::image::ImageDecodeStatus status = imageDecoder.decode(luminanceSurface/*, {nullptr, true, false}*/);
 
     // status is false if decoding the image failed
     if (!status) {
@@ -418,12 +414,7 @@ void decodeSurfaceImage(
     }
 
     // for grayscale images we may need to blit them to a luminance format
-    mango::image::Surface inputSurface = surface;
-
-    surface.format = blitFormat;
-    surface.stride = blitStride;
-
-    blitSurfaceImage(inputSurface, surface, linear);
+    blitSurfaceImage(luminanceSurface, surface, linear);
 }
 
 unsigned char* encodeSurfaceImage(
@@ -442,6 +433,7 @@ unsigned char* encodeSurfaceImage(
     size = allocatorStream.size();
     unsigned char* bits = allocatorStream.acquire();
 
+    // can technically happen, but probably never will
     if (!bits) {
         throw std::bad_alloc();
     }
@@ -577,7 +569,9 @@ pixman_image_t* premultiplyMaskImage(const mango::image::Surface &surface, pixma
     }
 
     MAKE_SCOPE_EXIT(maskImageScopeExit) {
-        unrefImage(maskImage);
+        if (!unrefImage(maskImage)) {
+            throw std::runtime_error("Failed to Unref Image");
+        }
     };
 
     pixman_image_composite(
@@ -845,11 +839,13 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
         : colorFormat
     );
 
-    size_t outputSurfaceStride = resize ? (size_t)m4Image.width * (size_t)OUTPUT_FORMAT.bytes() : stride;
+    size_t outputSurfaceStride = stride;
+    std::unique_ptr<mango::u8[]> outputSurfaceImage = nullptr;
 
-    std::unique_ptr<mango::u8[]> outputSurfaceImage = resize
-        ? std::unique_ptr<mango::u8[]>(new mango::u8[outputSurfaceStride * (size_t)m4Image.height])
-        : nullptr;
+    if (resize) {
+        outputSurfaceStride = (size_t)m4Image.width * (size_t)OUTPUT_FORMAT.bytes();
+        outputSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[outputSurfaceStride * (size_t)m4Image.height]);
+    }
 
     // the resize is not done here, so the input width and height is used for the output surface
     mango::image::Surface outputSurface(
@@ -918,7 +914,7 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
     linear = imageHeader.linear;
     premultiplied = imageHeader.premultiplied;
 
-    const mango::image::Format &BLIT_FORMAT = FORMAT_MAP.at(
+    const mango::image::Format &SURFACE_FORMAT = FORMAT_MAP.at(
         resize
         
         ? getResizeColorFormat(
@@ -931,16 +927,31 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
         : colorFormat
     );
 
+    bool isLuminance = SURFACE_FORMAT.isLuminance();
+
     // LuminanceBitmap uses RGBA natively, so import to that if the blit format is luminance
-    const mango::image::Format &SURFACE_FORMAT = BLIT_FORMAT.isLuminance()
+    const mango::image::Format &LUMINANCE_SURFACE_FORMAT = isLuminance
         ? IMAGE_HEADER_FORMAT_RGBA
-        : BLIT_FORMAT;
+        : SURFACE_FORMAT;
 
-    size_t surfaceStride = (resize || BLIT_FORMAT.isLuminance()) ? (size_t)imageHeader.width * (size_t)SURFACE_FORMAT.bytes() : stride;
+    size_t surfaceStride = stride;
+    size_t luminanceSurfaceStride = stride;
 
-    std::unique_ptr<mango::u8[]> surfaceImage = resize
-        ? std::unique_ptr<mango::u8[]>(new mango::u8[surfaceStride * (size_t)imageHeader.height])
-        : nullptr;
+    std::unique_ptr<mango::u8[]> surfaceImage = nullptr;
+    std::unique_ptr<mango::u8[]> luminanceSurfaceImage = nullptr;
+
+    if (resize || isLuminance) {
+        surfaceStride = (size_t)imageHeader.width * (size_t)SURFACE_FORMAT.bytes();
+        luminanceSurfaceStride = (size_t)imageHeader.width * (size_t)LUMINANCE_SURFACE_FORMAT.bytes();
+
+        if (resize || surfaceStride != stride) {
+            surfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[surfaceStride * (size_t)imageHeader.height]);
+        }
+
+        if (surfaceStride != luminanceSurfaceStride) {
+            luminanceSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[luminanceSurfaceStride * (size_t)imageHeader.height]);
+        }
+    }
 
     mango::image::Surface surface(
         imageHeader.width, imageHeader.height,
@@ -948,18 +959,17 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
         surfaceImage ? surfaceImage.get() : image
     );
 
+    mango::image::Surface luminanceSurface(
+        imageHeader.width, imageHeader.height,
+        LUMINANCE_SURFACE_FORMAT, luminanceSurfaceStride,
+        luminanceSurfaceImage ? luminanceSurfaceImage.get() : surface.image
+    );
+
     try {
         decodeSurfaceImage(
             surface,
+            luminanceSurface,
             imageDecoder,
-            BLIT_FORMAT,
-
-            (
-                resize
-                ? (size_t)surface.width * (size_t)BLIT_FORMAT.bytes()
-                : stride
-            ),
-
             linear
         );
     } catch (mango::Exception) {
