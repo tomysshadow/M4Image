@@ -46,16 +46,7 @@ class M4IMAGE_API M4Image {
         XXLA32
     };
 
-    M4Image(int width, int height, COLOR_FORMAT colorFormat, size_t stride = 0, unsigned char* image = 0);
-    ~M4Image();
-
-    // note: extension is a string but we export it as const char* because
-    // you're not supposed to export STL classes across DLL boundaries
-    void M4IMAGE_CALL blit(const M4Image &m4Image, bool linear = false, bool premultiplied = false);
-    void M4IMAGE_CALL load(const unsigned char* address, size_t size, const char* extension, bool &linear, bool &premultiplied);
-    void M4IMAGE_CALL load(const unsigned char* address, size_t size, const char* extension, bool &linear);
-    void M4IMAGE_CALL load(const unsigned char* address, size_t size, const char* extension);
-    unsigned char* M4IMAGE_CALL save(size_t &size, const char* extension, float quality = 0.90f) const;
+    static Allocator allocator;
 
     static void M4IMAGE_CALL getInfo(
         const unsigned char* address,
@@ -69,9 +60,14 @@ class M4IMAGE_API M4Image {
         bool* premultipliedPointer
     );
 
+    M4Image(int width, int height, COLOR_FORMAT colorFormat, size_t stride = 0, unsigned char* image = 0);
+    ~M4Image();
+    void M4IMAGE_CALL blit(const M4Image &m4Image, bool linear = false, bool premultiplied = false);
+    void M4IMAGE_CALL load(const unsigned char* address, size_t size, const char* extension, bool &linear, bool &premultiplied);
+    void M4IMAGE_CALL load(const unsigned char* address, size_t size, const char* extension, bool &linear);
+    void M4IMAGE_CALL load(const unsigned char* address, size_t size, const char* extension);
+    unsigned char* M4IMAGE_CALL save(size_t &size, const char* extension, float quality = 0.90f) const;
     unsigned char* M4IMAGE_CALL acquire();
-
-    static Allocator allocator;
 
     private:
     int width = 0;

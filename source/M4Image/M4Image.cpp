@@ -10,8 +10,11 @@
 #include <mango/image/quantize.hpp>
 #include <pixman.h>
 
-void* operator new(size_t size) {
-    void* block = M4Image::allocator.malloc(size);
+_NODISCARD _Ret_notnull_ _Post_writable_byte_size_(_Size) _VCRT_ALLOCATOR
+void* __CRTDECL operator new(
+    size_t _Size
+    ) {
+    void* block = M4Image::allocator.malloc(_Size);
 
     if (!block) {
         throw std::bad_alloc();
@@ -19,9 +22,11 @@ void* operator new(size_t size) {
     return block;
 }
 
-void operator delete(void* block) {
-    if (block) {
-        M4Image::allocator.free(block);
+void __CRTDECL operator delete(
+    void* _Block
+    ) {
+    if (_Block) {
+        M4Image::allocator.free(_Block);
     }
 }
 
@@ -730,6 +735,60 @@ void* M4Image::Allocator::realloc(void* block, size_t size) {
     return reallocProc(block, size);
 }
 
+M4Image::Allocator M4Image::allocator;
+
+void M4Image::getInfo(
+    const unsigned char* address,
+    size_t size,
+    const char* extension,
+    uint32_t* bitsPointer,
+    bool* alphaPointer,
+    int* widthPointer,
+    int* heightPointer,
+    bool* linearPointer,
+    bool* premultipliedPointer
+) {
+    if (!address) {
+        throw std::invalid_argument("address must not be zero");
+    }
+
+    if (!extension) {
+        throw std::invalid_argument("extension must not be zero");
+    }
+
+    mango::image::ImageDecoder imageDecoder(mango::ConstMemory(address, size), extension);
+
+    if (!imageDecoder.isDecoder()) {
+        throw std::logic_error("No Decoder");
+    }
+
+    mango::image::ImageHeader imageHeader = imageDecoder.header();
+
+    if (bitsPointer) {
+        *bitsPointer = imageHeader.format.bits;
+    }
+
+    if (alphaPointer) {
+        *alphaPointer = imageHeader.format.isAlpha();
+    }
+
+    if (widthPointer) {
+        *widthPointer = imageHeader.width;
+    }
+
+    if (heightPointer) {
+        *heightPointer = imageHeader.height;
+    }
+
+    if (linearPointer) {
+        *linearPointer = imageHeader.linear;
+    }
+
+    if (premultipliedPointer) {
+        *premultipliedPointer = imageHeader.premultiplied;
+    }
+}
+
 M4Image::M4Image(int width, int height, COLOR_FORMAT colorFormat, size_t stride, unsigned char* image)
     : colorFormat(colorFormat) {
     if (!width || !height) {
@@ -760,6 +819,10 @@ M4Image::~M4Image() {
 }
 
 void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
+    if (!m4Image.image || !image) {
+        throw std::logic_error("image invalid");
+    }
+
     const mango::image::Surface INPUT_SURFACE(
         m4Image.width, m4Image.height,
         FORMAT_MAP.at(m4Image.colorFormat), m4Image.stride,
@@ -822,6 +885,10 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
 }
 
 void M4Image::load(const unsigned char* address, size_t size, const char* extension, bool &linear, bool &premultiplied) {
+    if (!image) {
+        throw std::logic_error("image invalid");
+    }
+
     MAKE_SCOPE_EXIT(linearScopeExit) {
         linear = false;
     };
@@ -937,6 +1004,10 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
 }
 
 unsigned char* M4Image::save(size_t &size, const char* extension, float quality) const {
+    if (!image) {
+        throw std::logic_error("image invalid");
+    }
+
     MAKE_SCOPE_EXIT(sizeScopeExit) {
         size = 0;
     };
@@ -963,62 +1034,8 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
     return bits;
 }
 
-void M4Image::getInfo(
-    const unsigned char* address,
-    size_t size,
-    const char* extension,
-    uint32_t* bitsPointer,
-    bool* alphaPointer,
-    int* widthPointer,
-    int* heightPointer,
-    bool* linearPointer,
-    bool* premultipliedPointer
-) {
-    if (!address) {
-        throw std::invalid_argument("address must not be zero");
-    }
-
-    if (!extension) {
-        throw std::invalid_argument("extension must not be zero");
-    }
-
-    mango::image::ImageDecoder imageDecoder(mango::ConstMemory(address, size), extension);
-
-    if (!imageDecoder.isDecoder()) {
-        throw std::logic_error("No Decoder");
-    }
-
-    mango::image::ImageHeader imageHeader = imageDecoder.header();
-
-    if (bitsPointer) {
-        *bitsPointer = imageHeader.format.bits;
-    }
-
-    if (alphaPointer) {
-        *alphaPointer = imageHeader.format.isAlpha();
-    }
-
-    if (widthPointer) {
-        *widthPointer = imageHeader.width;
-    }
-
-    if (heightPointer) {
-        *heightPointer = imageHeader.height;
-    }
-
-    if (linearPointer) {
-        *linearPointer = imageHeader.linear;
-    }
-
-    if (premultipliedPointer) {
-        *premultipliedPointer = imageHeader.premultiplied;
-    }
-}
-
 unsigned char* M4Image::acquire() {
     unsigned char* image = this->image;
     this->image = 0;
     return image;
 }
-
-M4Image::Allocator M4Image::allocator;
