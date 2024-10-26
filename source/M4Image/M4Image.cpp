@@ -935,42 +935,45 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
         surfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[surfaceStride * (size_t)imageHeader.height]);
     }
 
-    bool isLuminance = SURFACE_FORMAT.isLuminance();
-
-    // LuminanceBitmap uses RGBA natively, so import to that if the blit format is luminance
-    const mango::image::Format &LUMINANCE_SURFACE_FORMAT = isLuminance
-        ? IMAGE_HEADER_FORMAT_RGBA
-        : SURFACE_FORMAT;
-
-    size_t luminanceSurfaceStride = stride;
-    std::unique_ptr<mango::u8[]> luminanceSurfaceImage = nullptr;
-
-    if (isLuminance) {
-        luminanceSurfaceStride = (size_t)imageHeader.width * (size_t)LUMINANCE_SURFACE_FORMAT.bytes();
-        luminanceSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[luminanceSurfaceStride * (size_t)imageHeader.height]);
-    }
-
     mango::image::Surface surface(
         imageHeader.width, imageHeader.height,
         SURFACE_FORMAT, surfaceStride,
         surfaceImage ? surfaceImage.get() : image
     );
 
-    mango::image::Surface luminanceSurface(
-        imageHeader.width, imageHeader.height,
-        LUMINANCE_SURFACE_FORMAT, luminanceSurfaceStride,
-        luminanceSurfaceImage ? luminanceSurfaceImage.get() : surface.image
-    );
+    // scope for temporary luminance surface stuff
+    {
+        bool isLuminance = SURFACE_FORMAT.isLuminance();
 
-    try {
-        decodeSurfaceImage(
-            surface,
-            luminanceSurface,
-            imageDecoder,
-            linear
+        // LuminanceBitmap uses RGBA natively, so import to that if the blit format is luminance
+        const mango::image::Format &LUMINANCE_SURFACE_FORMAT = isLuminance
+            ? IMAGE_HEADER_FORMAT_RGBA
+            : SURFACE_FORMAT;
+
+        size_t luminanceSurfaceStride = stride;
+        std::unique_ptr<mango::u8[]> luminanceSurfaceImage = nullptr;
+
+        if (isLuminance) {
+            luminanceSurfaceStride = (size_t)imageHeader.width * (size_t)LUMINANCE_SURFACE_FORMAT.bytes();
+            luminanceSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[luminanceSurfaceStride * (size_t)imageHeader.height]);
+        }
+
+        mango::image::Surface luminanceSurface(
+            imageHeader.width, imageHeader.height,
+            LUMINANCE_SURFACE_FORMAT, luminanceSurfaceStride,
+            luminanceSurfaceImage ? luminanceSurfaceImage.get() : surface.image
         );
-    } catch (mango::Exception) {
-        throw std::runtime_error("Failed to Decode Surface Image");
+
+        try {
+            decodeSurfaceImage(
+                surface,
+                luminanceSurface,
+                imageDecoder,
+                linear
+            );
+        } catch (mango::Exception) {
+            throw std::runtime_error("Failed to Decode Surface Image");
+        }
     }
 
     // if we don't need to resize the image (width and height matches) then job done
