@@ -676,16 +676,16 @@ void resizeImage(
     };
 
     // we should only care about premultiplying if:
+    // -the image format isn't already premultiplied (then it's the caller's problem)
     // -the source format is PIXMAN_x8r8g8b8 (indicating we are meant to use it with maskImage)
     // -the destination format has alpha (because otherwise the colours will be unaffected by alpha)
     // -the destination format has RGB channels (because otherwise the colour data will be thrown out anyway)
-    // -the image format isn't already premultiplied (then it's the caller's problem)
     // we don't care about if the surface has alpha here
     // the source format will be PIXMAN_x8r8g8b8 if it does/it matters
-    bool unpremultiply = sourceFormat == PIXMAN_x8r8g8b8
+    bool unpremultiply = !premultiplied
+        && sourceFormat == PIXMAN_x8r8g8b8
         && PIXMAN_FORMAT_A(destinationFormat)
-        && PIXMAN_FORMAT_COLOR(destinationFormat)
-        && !premultiplied;
+        && PIXMAN_FORMAT_COLOR(destinationFormat);
 
     // premultiply, only if we'll undo it later, and if the original image wasn't already premultiplied
     pixman_image_t* maskImage = unpremultiply
