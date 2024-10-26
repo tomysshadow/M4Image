@@ -883,10 +883,6 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
 }
 
 void M4Image::load(const unsigned char* address, size_t size, const char* extension, bool &linear, bool &premultiplied) {
-    if (!image) {
-        throw std::logic_error("image invalid");
-    }
-
     MAKE_SCOPE_EXIT(linearScopeExit) {
         linear = false;
     };
@@ -894,6 +890,10 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
     MAKE_SCOPE_EXIT(premultipliedScopeExit) {
         premultiplied = false;
     };
+
+    if (!image) {
+        throw std::logic_error("image invalid");
+    }
 
     if (!address) {
         throw std::invalid_argument("address must not be zero");
@@ -1002,13 +1002,13 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
 }
 
 unsigned char* M4Image::save(size_t &size, const char* extension, float quality) const {
-    if (!image) {
-        throw std::logic_error("image invalid");
-    }
-
     MAKE_SCOPE_EXIT(sizeScopeExit) {
         size = 0;
     };
+
+    if (!image) {
+        throw std::logic_error("image invalid");
+    }
 
     if (!extension) {
         throw std::invalid_argument("extension must not be zero");
