@@ -821,10 +821,10 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
         m4Image.image
     );
 
+    bool resize = width != m4Image.width || height != m4Image.height;
+
     pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
     pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
-
-    bool resize = width != m4Image.width || height != m4Image.height;
 
     const mango::image::Format &OUTPUT_FORMAT = FORMAT_MAP.at(
         resize
@@ -907,12 +907,12 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
 
     mango::image::ImageHeader imageHeader = imageDecoder.header();
 
-    pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
-    pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
-
     bool resize = width != imageHeader.width || height != imageHeader.height;
     linear = imageHeader.linear;
     premultiplied = imageHeader.premultiplied;
+
+    pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
+    pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
 
     const mango::image::Format &SURFACE_FORMAT = FORMAT_MAP.at(
         resize
