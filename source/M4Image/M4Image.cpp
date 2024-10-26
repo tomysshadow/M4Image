@@ -927,6 +927,14 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
         : colorFormat
     );
 
+    size_t surfaceStride = stride;
+    std::unique_ptr<mango::u8[]> surfaceImage = nullptr;
+
+    if (resize) {
+        surfaceStride = (size_t)imageHeader.width * (size_t)SURFACE_FORMAT.bytes();
+        surfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[surfaceStride * (size_t)imageHeader.height]);
+    }
+
     bool isLuminance = SURFACE_FORMAT.isLuminance();
 
     // LuminanceBitmap uses RGBA natively, so import to that if the blit format is luminance
@@ -934,23 +942,12 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
         ? IMAGE_HEADER_FORMAT_RGBA
         : SURFACE_FORMAT;
 
-    size_t surfaceStride = stride;
     size_t luminanceSurfaceStride = stride;
-
-    std::unique_ptr<mango::u8[]> surfaceImage = nullptr;
     std::unique_ptr<mango::u8[]> luminanceSurfaceImage = nullptr;
 
-    if (resize || isLuminance) {
-        surfaceStride = (size_t)imageHeader.width * (size_t)SURFACE_FORMAT.bytes();
+    if (isLuminance) {
         luminanceSurfaceStride = (size_t)imageHeader.width * (size_t)LUMINANCE_SURFACE_FORMAT.bytes();
-
-        if (resize || surfaceStride != stride) {
-            surfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[surfaceStride * (size_t)imageHeader.height]);
-        }
-
-        if (surfaceStride != luminanceSurfaceStride) {
-            luminanceSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[luminanceSurfaceStride * (size_t)imageHeader.height]);
-        }
+        luminanceSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[luminanceSurfaceStride * (size_t)imageHeader.height]);
     }
 
     mango::image::Surface surface(
