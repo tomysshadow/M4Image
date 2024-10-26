@@ -817,7 +817,7 @@ M4Image::~M4Image() {
 }
 
 void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
-    if (!m4Image.image || !image) {
+    if (!image || !m4Image.image) {
         throw std::logic_error("image invalid");
     }
 
