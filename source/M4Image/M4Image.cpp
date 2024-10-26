@@ -799,9 +799,7 @@ M4Image::M4Image(int width, int height, COLOR_FORMAT colorFormat) {
 }
 
 M4Image::~M4Image() {
-    if (owner) {
-        delete[] image;
-    }
+    destroy();
 }
 
 void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
@@ -1045,4 +1043,10 @@ void M4Image::create(int width, int height, COLOR_FORMAT colorFormat, size_t &st
     this->colorFormat = colorFormat;
     this->stride = stride;
     this->image = image;
+}
+
+void M4Image::destroy() {
+    if (owner) {
+        delete[] image;
+    }
 }

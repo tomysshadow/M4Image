@@ -72,6 +72,7 @@ class M4IMAGE_API M4Image {
 
     private:
     void create(int width, int height, COLOR_FORMAT colorFormat, size_t &stride, unsigned char* image = 0);
+    void destroy();
 
     int width = 0;
     int height = 0;
