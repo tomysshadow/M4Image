@@ -955,7 +955,17 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
 
         if (isLuminance) {
             luminanceSurfaceStride = (size_t)imageHeader.width * (size_t)LUMINANCE_SURFACE_FORMAT.bytes();
-            luminanceSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[luminanceSurfaceStride * (size_t)imageHeader.height]);
+
+            // if we are dealing with luminance
+            // there will always be a LuminanceBitmap intermediary
+            // so we can safely use the same memory for
+            // both the RGBA32 and XXLA32 side of things, as we'll never
+            // end up interpreting the same memory as a different format for the blit
+            // we should only allocate this if it needs to be a different size
+            // like RGBA32 to L8 for example
+            if (luminanceSurfaceStride != surfaceStride) {
+                luminanceSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[luminanceSurfaceStride * (size_t)imageHeader.height]);
+            }
         }
 
         mango::image::Surface luminanceSurface(
