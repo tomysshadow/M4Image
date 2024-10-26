@@ -789,27 +789,13 @@ void M4Image::getInfo(
     }
 }
 
-M4Image::M4Image(int width, int height, COLOR_FORMAT colorFormat, size_t stride, unsigned char* image)
-    : colorFormat(colorFormat) {
-    if (!width || !height) {
-        throw std::invalid_argument("width and height must not be zero");
-    }
+M4Image::M4Image(int width, int height, COLOR_FORMAT colorFormat, size_t &stride, unsigned char* image) {
+    create(width, height, colorFormat, stride, image);
+}
 
-    this->width = width;
-    this->height = height;
-
-    if (!stride) {
-        stride = (size_t)width * (size_t)FORMAT_MAP.at(colorFormat).bytes();
-    }
-
-    this->stride = stride;
-
-    if (!image) {
-        image = new unsigned char[stride * (size_t)height];
-        owner = true;
-    }
-
-    this->image = image;
+M4Image::M4Image(int width, int height, COLOR_FORMAT colorFormat) {
+    size_t stride = 0;
+    create(width, height, colorFormat, stride);
 }
 
 M4Image::~M4Image() {
@@ -1038,4 +1024,25 @@ unsigned char* M4Image::acquire() {
     unsigned char* image = this->image;
     this->image = 0;
     return image;
+}
+
+void M4Image::create(int width, int height, COLOR_FORMAT colorFormat, size_t &stride, unsigned char* image) {
+    if (!width || !height) {
+        throw std::invalid_argument("width and height must not be zero");
+    }
+
+    if (!stride) {
+        stride = (size_t)width * (size_t)FORMAT_MAP.at(colorFormat).bytes();
+    }
+
+    if (!image) {
+        image = new unsigned char[stride * (size_t)height];
+        owner = true;
+    }
+
+    this->width = width;
+    this->height = height;
+    this->colorFormat = colorFormat;
+    this->stride = stride;
+    this->image = image;
 }
