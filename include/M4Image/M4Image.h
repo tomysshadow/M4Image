@@ -57,7 +57,7 @@ class M4IMAGE_API M4Image {
     void M4IMAGE_CALL load(const unsigned char* address, size_t size, const char* extension);
     unsigned char* M4IMAGE_CALL save(size_t &size, const char* extension, float quality = 0.90f) const;
 
-    static bool M4IMAGE_CALL getInfo(
+    static void M4IMAGE_CALL getInfo(
         const unsigned char* address,
         size_t size,
         const char* extension,

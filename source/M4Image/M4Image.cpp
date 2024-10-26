@@ -554,7 +554,7 @@ pixman_image_t* premultiplyMaskImage(const mango::image::Surface &surface, pixma
     );
 
     if (!maskImage) {
-        return 0;
+        throw std::bad_alloc();
     }
 
     MAKE_SCOPE_EXIT(maskImageScopeExit) {
@@ -674,7 +674,7 @@ void resizeImage(
         : sourceImage;
 
     SCOPE_EXIT {
-        if (maskImage && maskImage != sourceImage) {
+        if (maskImage != sourceImage) {
             if (!unrefImage(maskImage)) {
                 throw std::runtime_error("Failed to Unref Image");
             }
@@ -963,7 +963,7 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
     return bits;
 }
 
-bool M4Image::getInfo(
+void M4Image::getInfo(
     const unsigned char* address,
     size_t size,
     const char* extension,
@@ -975,17 +975,17 @@ bool M4Image::getInfo(
     bool* premultipliedPointer
 ) {
     if (!address) {
-        return false;
+        throw std::invalid_argument("address must not be zero");
     }
 
     if (!extension) {
-        return false;
+        throw std::invalid_argument("extension must not be zero");
     }
 
     mango::image::ImageDecoder imageDecoder(mango::ConstMemory(address, size), extension);
 
     if (!imageDecoder.isDecoder()) {
-        return false;
+        throw std::logic_error("No Decoder");
     }
 
     mango::image::ImageHeader imageHeader = imageDecoder.header();
@@ -1013,7 +1013,6 @@ bool M4Image::getInfo(
     if (premultipliedPointer) {
         *premultipliedPointer = imageHeader.premultiplied;
     }
-    return true;
 }
 
 unsigned char* M4Image::acquire() {
