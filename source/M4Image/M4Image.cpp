@@ -3,7 +3,6 @@
 #include <map>
 #include <optional>
 #include <memory>
-#include <math.h>
 
 #include <mango/image/surface.hpp>
 #include <mango/image/decoder.hpp>
