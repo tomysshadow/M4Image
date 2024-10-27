@@ -12,9 +12,9 @@ class M4IMAGE_API M4Image {
 
         Allocator();
         Allocator(MallocProc mallocProc, FreeProc freeProc, ReallocProc reallocProc);
-        void* M4IMAGE_CALL malloc(size_t size);
-        void M4IMAGE_CALL free(void* block);
-        void* M4IMAGE_CALL realloc(void* block, size_t size);
+        void* M4IMAGE_CALL malloc(size_t size) const;
+        void M4IMAGE_CALL free(void* block) const;
+        void* M4IMAGE_CALL realloc(void* block, size_t size) const;
 
         private:
         MallocProc mallocProc = ::malloc;

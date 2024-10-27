@@ -739,15 +739,15 @@ M4Image::Allocator::Allocator(MallocProc mallocProc, FreeProc freeProc, ReallocP
     reallocProc(reallocProc) {
 }
 
-void* M4Image::Allocator::malloc(size_t size) {
+void* M4Image::Allocator::malloc(size_t size) const {
     return mallocProc(size);
 }
 
-void M4Image::Allocator::free(void* block) {
+void M4Image::Allocator::free(void* block) const {
     freeProc(block);
 }
 
-void* M4Image::Allocator::realloc(void* block, size_t size) {
+void* M4Image::Allocator::realloc(void* block, size_t size) const {
     return reallocProc(block, size);
 }
 
