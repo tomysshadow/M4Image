@@ -60,8 +60,8 @@ class M4IMAGE_API M4Image {
         bool* premultipliedPointer
     );
 
-    M4Image(int width, int height, COLOR_FORMAT colorFormat, size_t &stride, unsigned char* image = 0);
-    M4Image(int width, int height, COLOR_FORMAT colorFormat);
+    M4Image(int width, int height, size_t &stride, COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA32, unsigned char* image = 0);
+    M4Image(int width, int height);
     ~M4Image();
     void M4IMAGE_CALL blit(const M4Image &m4Image, bool linear = false, bool premultiplied = false);
     void M4IMAGE_CALL load(const unsigned char* address, size_t size, const char* extension, bool &linear, bool &premultiplied);
@@ -71,13 +71,13 @@ class M4IMAGE_API M4Image {
     unsigned char* M4IMAGE_CALL acquire();
 
     private:
-    void create(int width, int height, COLOR_FORMAT colorFormat, size_t &stride, unsigned char* image = 0);
+    void create(int width, int height, size_t &stride, COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA32, unsigned char* image = 0);
     void destroy();
 
     int width = 0;
     int height = 0;
-    COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA32;
     size_t stride = 0;
+    COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA32;
     unsigned char* image = 0;
     bool owner = false;
 };

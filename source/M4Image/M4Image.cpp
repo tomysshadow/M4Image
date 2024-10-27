@@ -9,6 +9,8 @@
 #include <mango/image/quantize.hpp>
 #include <pixman.h>
 
+M4Image::Allocator M4Image::allocator;
+
 _NODISCARD _Ret_notnull_ _Post_writable_byte_size_(_Size) _VCRT_ALLOCATOR
 void* __CRTDECL operator new(
     size_t _Size
@@ -749,8 +751,6 @@ void* M4Image::Allocator::realloc(void* block, size_t size) {
     return reallocProc(block, size);
 }
 
-M4Image::Allocator M4Image::allocator;
-
 void M4Image::getInfo(
     const unsigned char* address,
     size_t size,
@@ -803,13 +803,13 @@ void M4Image::getInfo(
     }
 }
 
-M4Image::M4Image(int width, int height, COLOR_FORMAT colorFormat, size_t &stride, unsigned char* image) {
-    create(width, height, colorFormat, stride, image);
+M4Image::M4Image(int width, int height, size_t &stride, COLOR_FORMAT colorFormat, unsigned char* image) {
+    create(width, height, stride, colorFormat, image);
 }
 
-M4Image::M4Image(int width, int height, COLOR_FORMAT colorFormat) {
+M4Image::M4Image(int width, int height) {
     size_t stride = 0;
-    create(width, height, colorFormat, stride);
+    create(width, height, stride);
 }
 
 M4Image::~M4Image() {
@@ -956,7 +956,7 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
             ? IMAGE_HEADER_FORMAT_RGBA
             : SURFACE_FORMAT;
 
-        size_t luminanceSurfaceStride = stride;
+        size_t luminanceSurfaceStride = surface.stride;
         std::unique_ptr<mango::u8[]> luminanceSurfaceImage = nullptr;
 
         if (isLuminance) {
@@ -1064,7 +1064,7 @@ unsigned char* M4Image::acquire() {
     return image;
 }
 
-void M4Image::create(int width, int height, COLOR_FORMAT colorFormat, size_t &stride, unsigned char* image) {
+void M4Image::create(int width, int height, size_t &stride, COLOR_FORMAT colorFormat, unsigned char* image) {
     if (!width || !height) {
         throw std::invalid_argument("width and height must not be zero");
     }
@@ -1080,8 +1080,8 @@ void M4Image::create(int width, int height, COLOR_FORMAT colorFormat, size_t &st
 
     this->width = width;
     this->height = height;
-    this->colorFormat = colorFormat;
     this->stride = stride;
+    this->colorFormat = colorFormat;
     this->image = image;
 }
 
