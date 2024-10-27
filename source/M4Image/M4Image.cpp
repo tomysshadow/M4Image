@@ -732,7 +732,7 @@ void resizeImage(
     }
 }
 
-M4Image::Allocator::Allocator(MallocProc mallocProc, FreeProc freeProc, ReallocProc reallocProc)
+constexpr M4Image::Allocator::Allocator(MallocProc mallocProc, FreeProc freeProc, ReallocProc reallocProc)
     : mallocProc(mallocProc),
     freeProc(freeProc),
     reallocProc(reallocProc) {
