@@ -9,7 +9,9 @@
 #include <mango/image/quantize.hpp>
 #include <pixman.h>
 
-M4Image::Allocator M4Image::allocator;
+// done to ensure constant initialization and avoid static initialization order fiasco
+static constexpr M4Image::Allocator defaultAllocator;
+M4Image::Allocator M4Image::allocator = defaultAllocator;
 
 _NODISCARD _Ret_notnull_ _Post_writable_byte_size_(_Size) _VCRT_ALLOCATOR
 void* __CRTDECL operator new(
@@ -728,9 +730,6 @@ void resizeImage(
     } else if (unpremultiply) {
         unpremultiplyColors((M4Image::Color32*)bits, width, height, stride);
     }
-}
-
-M4Image::Allocator::Allocator() {
 }
 
 M4Image::Allocator::Allocator(MallocProc mallocProc, FreeProc freeProc, ReallocProc reallocProc)
