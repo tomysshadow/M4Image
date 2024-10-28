@@ -1,5 +1,6 @@
 #include "M4Image/M4Image.h"
 #include "M4Image/scope_guard.hpp"
+#include <array>
 #include <map>
 #include <optional>
 #include <memory>
@@ -13,34 +14,16 @@
 static constexpr M4Image::Allocator defaultAllocator;
 M4Image::Allocator M4Image::allocator = defaultAllocator;
 
-_NODISCARD _Ret_notnull_ _Post_writable_byte_size_(_Size) _VCRT_ALLOCATOR
-void* __CRTDECL operator new(
-    size_t _Size
-    ) {
-    void* block = M4Image::allocator.malloc(_Size);
-
-    if (!block) {
-        throw std::bad_alloc();
+struct MallocDeleter {
+    void operator()(void* block) {
+        M4Image::allocator.freeSafe(block);
     }
-    return block;
-}
+};
 
-void __CRTDECL operator delete(
-    void* _Block
-    ) {
-    if (_Block) {
-        M4Image::allocator.free(_Block);
-    }
-}
+typedef std::array<unsigned char, USHRT_MAX + 1> CHANNEL_UNPREMULTIPLIER_ARRAY;
 
-// aligned to nearest 64 bytes so it is on cache lines
-static bool channelUnpremultiplierCreated = false;
-__declspec(align(64)) static unsigned char CHANNEL_UNPREMULTIPLIER[USHRT_MAX + 1] = {};
-
-void createChannelUnpremultiplier() {
-    if (channelUnpremultiplierCreated) {
-        return;
-    }
+constexpr CHANNEL_UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
+    CHANNEL_UNPREMULTIPLIER_ARRAY channelUnpremultiplierArray = {};
 
     // note: the alpha, divided by two, is added to the channel
     // so the channel is scaled instead of stripped (it works out to rounding the number, instead of flooring)
@@ -49,44 +32,33 @@ void createChannelUnpremultiplier() {
 
     for (int channel = 0; channel <= UCHAR_MAX; channel++) {
         for (int alpha = 1; alpha <= UCHAR_MAX; alpha++) {
-            CHANNEL_UNPREMULTIPLIER[(channel << CHAR_BIT) | alpha] = clampUCHAR(((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha);
+            channelUnpremultiplierArray[(channel << CHAR_BIT) | alpha] = clampUCHAR(((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha);
         }
     }
-
-    // this function may get hit by multiple threads at once
-    // however, it's entirely deterministic, so it doesn't really matter
-    // the worst case scenario is that one thread hits this as
-    // another is just finishing
-    // but even in that case, it only costs the same time as processing a
-    // single 255 * 255 image the slow way, two times, at most
-    // which doesn't actually take very long, usually only 1 ms
-    // (and then processing larger images costs nothing, pennies, so it's extremely worth it)
-    // having a lock here would just require threads to wait about the
-    // same amount of time for the first to finish
-    // but would be a slowdown the other 99% of the time
-    // so it's better to just eat the cost of needing to potentially do this multiple times
-    // that said, it's important this is only set to true here at the end!
-    channelUnpremultiplierCreated = true;
+    return channelUnpremultiplierArray;
 }
 
-#define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER[((channel) << CHAR_BIT) | (alpha)])
+// aligned to nearest 64 bytes so it is on cache lines
+// note: there is a specific IntelliSense error that it only shows for a std::array of size 65536 bytes
+// this is an IntelliSense bug, it compiles correctly: https://github.com/microsoft/vscode-cpptools/issues/5833
+alignas(64) static constexpr CHANNEL_UNPREMULTIPLIER_ARRAY UNPREMULTIPLIER_ARRAY = createChannelUnpremultiplierArray();
+
+#define UNPREMULTIPLY_CHANNEL(channel, alpha) (UNPREMULTIPLIER_ARRAY[((channel) << CHAR_BIT) | (alpha)])
 
 void convertColors(
     M4Image::Color32* colorPointer,
     size_t width,
     size_t height,
     size_t stride,
-    unsigned char* image,
+    unsigned char* imagePointer,
     bool unpremultiply
 ) {
     const size_t CHANNEL_LUMINANCE = 2;
     const size_t CHANNEL_ALPHA = 3;
 
-    M4Image::Color16* luminancePointer = (M4Image::Color16*)image;
+    M4Image::Color16* luminancePointer = (M4Image::Color16*)imagePointer;
 
     if (unpremultiply) {
-        createChannelUnpremultiplier();
-
         for (size_t i = 0; i < height; i++) {
             for (size_t j = 0; j < width; j++) {
                 unsigned char &alpha = luminancePointer->channels[1];
@@ -100,8 +72,8 @@ void convertColors(
                 luminancePointer++;
             }
 
-            image += stride;
-            luminancePointer = (M4Image::Color16*)image;
+            imagePointer += stride;
+            luminancePointer = (M4Image::Color16*)imagePointer;
         }
     } else {
         for (size_t i = 0; i < height; i++) {
@@ -109,8 +81,8 @@ void convertColors(
                 *luminancePointer++ = *(M4Image::Color16*)&colorPointer++->channels[CHANNEL_LUMINANCE];
             }
 
-            image += stride;
-            luminancePointer = (M4Image::Color16*)image;
+            imagePointer += stride;
+            luminancePointer = (M4Image::Color16*)imagePointer;
         }
     }
 }
@@ -121,8 +93,6 @@ void unpremultiplyColors(
     size_t height,
     size_t stride
 ) {
-    createChannelUnpremultiplier();
-
     const size_t CHANNEL_ALPHA = 3;
 
     unsigned char* rowPointer = (unsigned char*)colorPointer;
@@ -230,9 +200,7 @@ class AllocatorStream : public mango::Stream {
 
 AllocatorStream::~AllocatorStream() {
     // note that for acquire to work this cannot happen in State's destructor
-    if (state.data) {
-        M4Image::allocator.free(state.data);
-    }
+    M4Image::allocator.freeSafe(state.data);
 }
 
 mango::u64 AllocatorStream::capacity() const {
@@ -276,12 +244,7 @@ void AllocatorStream::reserve(mango::u64 offset) {
         capacity *= 2;
     } while (offset > capacity);
 
-    state.data = (mango::u8*)M4Image::allocator.realloc(state.data, capacity);
-
-    if (!state.data) {
-        MANGO_EXCEPTION("[AllocatorStream] Failed to reallocate memory.");
-    }
-
+    M4Image::allocator.reallocSafe(state.data, capacity);
     state.capacity = capacity;
 }
 
@@ -621,26 +584,27 @@ void resizeImage(
     int width,
     int height,
     size_t stride,
-    unsigned char* image,
+    unsigned char* imagePointer,
     bool convert,
     bool premultiplied
 ) {
     // we have to do a bunch of boilerplate setup stuff for the resize operation
-    // bits MUST be a seperate buffer to surface.image (yes, even for upscaling)
+    // bitsPointer MUST be a seperate buffer to surface.image (yes, even for upscaling)
     // if we aren't converting, we expect to get the destination image in the user requested stride
     // if we are converting, we expect it to be based on the format, for convenience's sake
     size_t bitsStride = stride;
-    unsigned char* bits = image;
+    unsigned char* bitsPointer = imagePointer;
 
-    std::unique_ptr<unsigned char[]> convertBits = 0;
+    typedef std::unique_ptr<unsigned char[], MallocDeleter> CONVERT_BITS_POINTER;
+    CONVERT_BITS_POINTER convertBitsPointer = 0;
 
     if (convert) {
         const size_t BYTES = 3;
 
         bitsStride = (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width;
 
-        convertBits = std::unique_ptr<unsigned char[]>(new unsigned char[bitsStride * (size_t)height]);
-        bits = convertBits.get();
+        convertBitsPointer = CONVERT_BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(bitsStride * (size_t)height));
+        bitsPointer = convertBitsPointer.get();
     }
 
     // create the destination image in the user's desired format
@@ -648,7 +612,7 @@ void resizeImage(
     pixman_image_t* destinationImage = pixman_image_create_bits(
         destinationFormat,
         width, height,
-        (uint32_t*)bits,
+        (uint32_t*)bitsPointer,
         (int)bitsStride
     );
 
@@ -725,10 +689,10 @@ void resizeImage(
     // as a final step we need to unpremultiply
     // as also convert down to 16-bit colour as necessary
     if (convert) {
-        convertColors((M4Image::Color32*)bits, width, height, stride, image, unpremultiply);
+        convertColors((M4Image::Color32*)bitsPointer, width, height, stride, imagePointer, unpremultiply);
         return;
     } else if (unpremultiply) {
-        unpremultiplyColors((M4Image::Color32*)bits, width, height, stride);
+        unpremultiplyColors((M4Image::Color32*)bitsPointer, width, height, stride);
     }
 }
 
@@ -738,20 +702,17 @@ constexpr M4Image::Allocator::Allocator(MallocProc mallocProc, FreeProc freeProc
     reallocProc(reallocProc) {
 }
 
-void* M4Image::Allocator::malloc(size_t size) const {
-    return mallocProc(size);
-}
+void* M4Image::Allocator::mallocSafe(size_t size) const {
+    void* block = mallocProc(size);
 
-void M4Image::Allocator::free(void* block) const {
-    freeProc(block);
-}
-
-void* M4Image::Allocator::realloc(void* block, size_t size) const {
-    return reallocProc(block, size);
+    if (!block) {
+        throw std::bad_alloc();
+    }
+    return block;
 }
 
 void M4Image::getInfo(
-    const unsigned char* address,
+    const unsigned char* pointer,
     size_t size,
     const char* extension,
     uint32_t* bitsPointer,
@@ -761,15 +722,15 @@ void M4Image::getInfo(
     bool* linearPointer,
     bool* premultipliedPointer
 ) {
-    if (!address) {
-        throw std::invalid_argument("address must not be zero");
+    if (!pointer) {
+        throw std::invalid_argument("pointer must not be zero");
     }
 
     if (!extension) {
         throw std::invalid_argument("extension must not be zero");
     }
 
-    mango::image::ImageDecoder imageDecoder(mango::ConstMemory(address, size), extension);
+    mango::image::ImageDecoder imageDecoder(mango::ConstMemory(pointer, size), extension);
 
     if (!imageDecoder.isDecoder()) {
         throw std::logic_error("No Decoder");
@@ -802,8 +763,8 @@ void M4Image::getInfo(
     }
 }
 
-M4Image::M4Image(int width, int height, size_t &stride, COLOR_FORMAT colorFormat, unsigned char* image) {
-    create(width, height, stride, colorFormat, image);
+M4Image::M4Image(int width, int height, size_t &stride, COLOR_FORMAT colorFormat, unsigned char* imagePointer) {
+    create(width, height, stride, colorFormat, imagePointer);
 }
 
 M4Image::M4Image(int width, int height) {
@@ -816,14 +777,14 @@ M4Image::~M4Image() {
 }
 
 void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
-    if (!image || !m4Image.image) {
-        throw std::logic_error("image invalid");
+    if (!imagePointer || !m4Image.imagePointer) {
+        throw Invalid();
     }
 
     const mango::image::Surface INPUT_SURFACE(
         m4Image.width, m4Image.height,
         FORMAT_MAP.at(m4Image.colorFormat), m4Image.stride,
-        m4Image.image
+        m4Image.imagePointer
     );
 
     bool resize = width != m4Image.width || height != m4Image.height;
@@ -845,18 +806,21 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
     );
 
     size_t outputSurfaceStride = stride;
-    std::unique_ptr<mango::u8[]> outputSurfaceImage = nullptr;
+    std::unique_ptr<mango::u8[], MallocDeleter> outputSurfaceImagePointer = nullptr;
 
     if (resize) {
         outputSurfaceStride = (size_t)m4Image.width * (size_t)OUTPUT_FORMAT.bytes();
-        outputSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[outputSurfaceStride * (size_t)m4Image.height]);
+
+        outputSurfaceImagePointer = std::unique_ptr<mango::u8[], MallocDeleter>(
+            (mango::u8*)M4Image::allocator.mallocSafe(outputSurfaceStride * (size_t)m4Image.height)
+        );
     }
 
     // the resize is not done here, so the input width and height is used for the output surface
     mango::image::Surface outputSurface(
         m4Image.width, m4Image.height,
         OUTPUT_FORMAT, outputSurfaceStride,
-        outputSurfaceImage ? outputSurfaceImage.get() : image
+        outputSurfaceImagePointer ? outputSurfaceImagePointer.get() : imagePointer
     );
 
     try {
@@ -877,13 +841,13 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
         width,
         height,
         stride,
-        image,
+        imagePointer,
         colorFormat == COLOR_FORMAT::AL16,
         premultiplied || !INPUT_SURFACE.format.isAlpha()
     );
 }
 
-void M4Image::load(const unsigned char* address, size_t size, const char* extension, bool &linear, bool &premultiplied) {
+void M4Image::load(const unsigned char* pointer, size_t size, const char* extension, bool &linear, bool &premultiplied) {
     MAKE_SCOPE_EXIT(linearScopeExit) {
         linear = false;
     };
@@ -892,19 +856,19 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
         premultiplied = false;
     };
 
-    if (!image) {
-        throw std::logic_error("image invalid");
+    if (!imagePointer) {
+        throw Invalid();
     }
 
-    if (!address) {
-        throw std::invalid_argument("address must not be zero");
+    if (!pointer) {
+        throw std::invalid_argument("pointer must not be zero");
     }
 
     if (!extension) {
         throw std::invalid_argument("extension must not be zero");
     }
 
-    mango::image::ImageDecoder imageDecoder(mango::ConstMemory(address, size), extension);
+    mango::image::ImageDecoder imageDecoder(mango::ConstMemory(pointer, size), extension);
 
     if (!imageDecoder.isDecoder()) {
         throw std::logic_error("No Decoder");
@@ -933,17 +897,17 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
     );
 
     size_t surfaceStride = stride;
-    std::unique_ptr<mango::u8[]> surfaceImage = nullptr;
+    std::unique_ptr<mango::u8[], MallocDeleter> surfaceImagePointer = nullptr;
 
     if (resize) {
         surfaceStride = (size_t)imageHeader.width * (size_t)SURFACE_FORMAT.bytes();
-        surfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[surfaceStride * (size_t)imageHeader.height]);
+        surfaceImagePointer = std::unique_ptr<mango::u8[], MallocDeleter>((mango::u8*)M4Image::allocator.mallocSafe(surfaceStride * (size_t)imageHeader.height));
     }
 
     mango::image::Surface surface(
         imageHeader.width, imageHeader.height,
         SURFACE_FORMAT, surfaceStride,
-        surfaceImage ? surfaceImage.get() : image
+        surfaceImagePointer ? surfaceImagePointer.get() : imagePointer
     );
 
     // scope for temporary luminance surface stuff
@@ -956,7 +920,7 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
             : SURFACE_FORMAT;
 
         size_t luminanceSurfaceStride = surface.stride;
-        std::unique_ptr<mango::u8[]> luminanceSurfaceImage = nullptr;
+        std::unique_ptr<mango::u8[], MallocDeleter> luminanceSurfaceImagePointer = nullptr;
 
         if (isLuminance) {
             luminanceSurfaceStride = (size_t)imageHeader.width * (size_t)LUMINANCE_SURFACE_FORMAT.bytes();
@@ -969,14 +933,14 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
             // we should only allocate this if it needs to be a different size
             // like RGBA32 to L8 for example
             if (luminanceSurfaceStride != surfaceStride) {
-                luminanceSurfaceImage = std::unique_ptr<mango::u8[]>(new mango::u8[luminanceSurfaceStride * (size_t)imageHeader.height]);
+                luminanceSurfaceImagePointer = std::unique_ptr<mango::u8[], MallocDeleter>((mango::u8*)M4Image::allocator.mallocSafe(luminanceSurfaceStride * (size_t)imageHeader.height));
             }
         }
 
         const mango::image::Surface LUMINANCE_SURFACE(
             imageHeader.width, imageHeader.height,
             LUMINANCE_SURFACE_FORMAT, luminanceSurfaceStride,
-            luminanceSurfaceImage ? luminanceSurfaceImage.get() : surface.image
+            luminanceSurfaceImagePointer ? luminanceSurfaceImagePointer.get() : surface.image
         );
 
         try {
@@ -1007,7 +971,7 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
         width,
         height,
         stride,
-        image,
+        imagePointer,
         colorFormat == COLOR_FORMAT::AL16,
         premultiplied || !imageHeader.format.isAlpha()
     );
@@ -1016,14 +980,14 @@ void M4Image::load(const unsigned char* address, size_t size, const char* extens
     linearScopeExit.dismiss();
 }
 
-void M4Image::load(const unsigned char* address, size_t size, const char* extension, bool &linear) {
+void M4Image::load(const unsigned char* pointer, size_t size, const char* extension, bool &linear) {
     bool premultiplied = false;
-    load(address, size, extension, linear, premultiplied);
+    load(pointer, size, extension, linear, premultiplied);
 }
 
-void M4Image::load(const unsigned char* address, size_t size, const char* extension) {
+void M4Image::load(const unsigned char* pointer, size_t size, const char* extension) {
     bool linear = false;
-    load(address, size, extension, linear);
+    load(pointer, size, extension, linear);
 }
 
 unsigned char* M4Image::save(size_t &size, const char* extension, float quality) const {
@@ -1031,8 +995,8 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
         size = 0;
     };
 
-    if (!image) {
-        throw std::logic_error("image invalid");
+    if (!imagePointer) {
+        throw Invalid();
     }
 
     if (!extension) {
@@ -1042,7 +1006,7 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
     const mango::image::Surface SURFACE(
         width, height,
         FORMAT_MAP.at(colorFormat), stride,
-        image
+        imagePointer
     );
 
     unsigned char* bits = 0;
@@ -1058,12 +1022,12 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
 }
 
 unsigned char* M4Image::acquire() {
-    unsigned char* image = this->image;
-    this->image = 0;
-    return image;
+    unsigned char* imagePointer = this->imagePointer;
+    this->imagePointer = 0;
+    return imagePointer;
 }
 
-void M4Image::create(int width, int height, size_t &stride, COLOR_FORMAT colorFormat, unsigned char* image) {
+void M4Image::create(int width, int height, size_t &stride, COLOR_FORMAT colorFormat, unsigned char* imagePointer) {
     if (!width || !height) {
         throw std::invalid_argument("width and height must not be zero");
     }
@@ -1072,8 +1036,8 @@ void M4Image::create(int width, int height, size_t &stride, COLOR_FORMAT colorFo
         stride = (size_t)width * (size_t)FORMAT_MAP.at(colorFormat).bytes();
     }
 
-    if (!image) {
-        image = new unsigned char[stride * (size_t)height];
+    if (!imagePointer) {
+        imagePointer = (unsigned char*)M4Image::allocator.mallocSafe(stride * (size_t)height);
         owner = true;
     }
 
@@ -1081,11 +1045,11 @@ void M4Image::create(int width, int height, size_t &stride, COLOR_FORMAT colorFo
     this->height = height;
     this->stride = stride;
     this->colorFormat = colorFormat;
-    this->image = image;
+    this->imagePointer = imagePointer;
 }
 
 void M4Image::destroy() {
     if (owner) {
-        delete[] image;
+        M4Image::allocator.freeSafe(imagePointer);
     }
 }
