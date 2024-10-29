@@ -727,7 +727,7 @@ void M4Image::getInfo(
     }
 
     if (!extension) {
-        throw std::invalid_argument("extension must not be zero");
+        extension = "";
     }
 
     mango::image::ImageDecoder imageDecoder(mango::ConstMemory(pointer, size), extension);
@@ -865,7 +865,7 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
     }
 
     if (!extension) {
-        throw std::invalid_argument("extension must not be zero");
+        extension = "";
     }
 
     mango::image::ImageDecoder imageDecoder(mango::ConstMemory(pointer, size), extension);
@@ -1000,7 +1000,7 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
     }
 
     if (!extension) {
-        throw std::invalid_argument("extension must not be zero");
+        extension = "";
     }
 
     const mango::image::Surface SURFACE(
