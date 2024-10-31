@@ -715,8 +715,8 @@ void M4Image::getInfo(
     const unsigned char* pointer,
     size_t size,
     const char* extension,
+    bool* isAlphaPointer,
     uint32_t* bitsPointer,
-    bool* alphaPointer,
     int* widthPointer,
     int* heightPointer,
     bool* linearPointer,
@@ -738,12 +738,12 @@ void M4Image::getInfo(
 
     mango::image::ImageHeader imageHeader = imageDecoder.header();
 
-    if (bitsPointer) {
-        *bitsPointer = imageHeader.format.bits;
+    if (isAlphaPointer) {
+        *isAlphaPointer = imageHeader.format.isAlpha();
     }
 
-    if (alphaPointer) {
-        *alphaPointer = imageHeader.format.isAlpha();
+    if (bitsPointer) {
+        *bitsPointer = imageHeader.format.bits;
     }
 
     if (widthPointer) {
