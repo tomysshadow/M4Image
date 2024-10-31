@@ -696,21 +696,6 @@ void resizeImage(
     }
 }
 
-constexpr M4Image::Allocator::Allocator(MallocProc mallocProc, FreeProc freeProc, ReallocProc reallocProc)
-    : mallocProc(mallocProc),
-    freeProc(freeProc),
-    reallocProc(reallocProc) {
-}
-
-void* M4Image::Allocator::mallocSafe(size_t size) const {
-    void* block = mallocProc(size);
-
-    if (!block) {
-        throw std::bad_alloc();
-    }
-    return block;
-}
-
 void M4Image::getInfo(
     const unsigned char* pointer,
     size_t size,
