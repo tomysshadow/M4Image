@@ -328,7 +328,7 @@ static const COLOR_FORMAT_MAP FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::BGRX32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 0)},
     {M4Image::COLOR_FORMAT::RGB24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::RGB, 8, 8, 8, 0)},
     {M4Image::COLOR_FORMAT::BGR24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::BGR, 8, 8, 8, 0)},
-    {M4Image::COLOR_FORMAT::AL16, mango::image::LuminanceFormat(16, 0x000000FF, 0x0000FF00)},
+    {M4Image::COLOR_FORMAT::LA16, mango::image::LuminanceFormat(16, 0x000000FF, 0x0000FF00)},
     {M4Image::COLOR_FORMAT::A8, mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0)},
     {M4Image::COLOR_FORMAT::L8, mango::image::LuminanceFormat(8, 0x000000FF, 0x00000000)},
     {M4Image::COLOR_FORMAT::XXXL32, mango::image::LuminanceFormat(32, 0xFF000000, 0x00000000)},
@@ -471,9 +471,9 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
         sourceFormat = PIXMAN_a8r8g8b8;
         destinationFormat = PIXMAN_a8r8g8b8;
         return M4Image::COLOR_FORMAT::XXXL32;
-        case M4Image::COLOR_FORMAT::AL16:
+        case M4Image::COLOR_FORMAT::LA16:
         case M4Image::COLOR_FORMAT::XXLA32:
-        // for COLOR_FORMAT::AL16, mango reads the image in XXLA format
+        // for COLOR_FORMAT::LA16, mango reads the image in XXLA format
         // the luminance can't be in the alpha channel now
         // because we need to premultiply in this case
         // so we just shove it in the blue channel now
@@ -827,7 +827,7 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
         height,
         stride,
         imagePointer,
-        colorFormat == COLOR_FORMAT::AL16,
+        colorFormat == COLOR_FORMAT::LA16,
         premultiplied || !INPUT_SURFACE.format.isAlpha()
     );
 }
@@ -957,7 +957,7 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
         height,
         stride,
         imagePointer,
-        colorFormat == COLOR_FORMAT::AL16,
+        colorFormat == COLOR_FORMAT::LA16,
         premultiplied || !imageHeader.format.isAlpha()
     );
 
