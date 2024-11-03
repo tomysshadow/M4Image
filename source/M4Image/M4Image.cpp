@@ -244,7 +244,7 @@ void AllocatorStream::reserve(mango::u64 offset) {
         capacity *= 2;
     } while (offset > capacity);
 
-    M4Image::allocator.reallocSafe(state.data, capacity);
+    M4Image::allocator.reAllocSafe(state.data, capacity);
     state.capacity = capacity;
 }
 
