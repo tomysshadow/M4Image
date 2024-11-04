@@ -728,7 +728,7 @@ void M4Image::getInfo(
     }
 
     if (bitsPointer) {
-        *bitsPointer = imageHeader.format.bits;
+        *bitsPointer = imageHeader.palette ? CHAR_BIT : imageHeader.format.bits;
     }
 
     if (widthPointer) {
