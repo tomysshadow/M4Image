@@ -724,11 +724,18 @@ void M4Image::getInfo(
     mango::image::ImageHeader imageHeader = imageDecoder.header();
 
     if (isAlphaPointer) {
+        // this may return true for images that don't actually have alpha sometimes
+        // but it doesn't seem to cause any problems
+        // (no better solution afaik)
         *isAlphaPointer = imageHeader.format.isAlpha();
     }
 
     if (bitsPointer) {
-        *bitsPointer = imageHeader.palette ? CHAR_BIT : imageHeader.format.bits;
+        // mango will decode palettes to RGBA by default
+        // but we want the images as 8-bit in that case
+        // in all other cases it uses the same bits for the format as the input
+        // (as far as I can tell)
+        *bitsPointer = imageHeader.palette ? 8 : imageHeader.format.bits;
     }
 
     if (widthPointer) {

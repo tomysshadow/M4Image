@@ -149,7 +149,6 @@
     #elif defined(MANGO_ENABLE_WAYLAND)
         #define MANGO_WINDOW_SYSTEM_WAYLAND
     #else
-        // Linux defaults to XLIB when display library is not selected
         #define MANGO_WINDOW_SYSTEM_XLIB
     #endif
 
