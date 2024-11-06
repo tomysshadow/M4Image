@@ -50,39 +50,50 @@ void convertColors(
     size_t width,
     size_t height,
     size_t stride,
+    M4Image::COLOR_FORMAT colorFormat,
     unsigned char* imagePointer,
     bool unpremultiply
 ) {
-    const size_t CHANNEL_LUMINANCE = 2;
-    const size_t CHANNEL_ALPHA = 3;
+    const size_t COLOR_CHANNEL_LUMINANCE = 2;
+    const size_t COLOR_CHANNEL_ALPHA = 3;
 
-    M4Image::Color16* luminancePointer = (M4Image::Color16*)imagePointer;
+    size_t convertedChannelLuminance = colorFormat != M4Image::COLOR_FORMAT::LA16;
+    size_t convertedChannelAlpha = colorFormat == M4Image::COLOR_FORMAT::LA16;
+
+    M4Image::Color16* convertedPointer = (M4Image::Color16*)imagePointer;
 
     if (unpremultiply) {
         for (size_t i = 0; i < height; i++) {
             for (size_t j = 0; j < width; j++) {
-                unsigned char &alpha = luminancePointer->channels[1];
-                alpha = colorPointer->channels[CHANNEL_ALPHA];
+                unsigned char &alpha = convertedPointer->channels[convertedChannelAlpha];
+                alpha = colorPointer->channels[COLOR_CHANNEL_ALPHA];
 
                 if (alpha) {
-                    luminancePointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[CHANNEL_LUMINANCE], alpha);
+                    convertedPointer->channels[convertedChannelLuminance] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[COLOR_CHANNEL_LUMINANCE], alpha);
                 }
 
                 colorPointer++;
-                luminancePointer++;
+                convertedPointer++;
             }
 
             imagePointer += stride;
-            luminancePointer = (M4Image::Color16*)imagePointer;
+            convertedPointer = (M4Image::Color16*)imagePointer;
         }
     } else {
         for (size_t i = 0; i < height; i++) {
             for (size_t j = 0; j < width; j++) {
-                *luminancePointer++ = *(M4Image::Color16*)&colorPointer++->channels[CHANNEL_LUMINANCE];
+                M4Image::Color32 &color = *colorPointer;
+                M4Image::Color16 &converted = *convertedPointer;
+
+                converted.channels[convertedChannelAlpha] = color.channels[COLOR_CHANNEL_ALPHA];
+                converted.channels[convertedChannelLuminance] = color.channels[COLOR_CHANNEL_LUMINANCE];
+
+                colorPointer++;
+                convertedPointer++;
             }
 
             imagePointer += stride;
-            luminancePointer = (M4Image::Color16*)imagePointer;
+            convertedPointer = (M4Image::Color16*)imagePointer;
         }
     }
 }
@@ -329,10 +340,11 @@ static const COLOR_FORMAT_MAP FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::RGB24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::RGB, 8, 8, 8, 0)},
     {M4Image::COLOR_FORMAT::BGR24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::BGR, 8, 8, 8, 0)},
     {M4Image::COLOR_FORMAT::LA16, mango::image::LuminanceFormat(16, 0x000000FF, 0x0000FF00)},
+    {M4Image::COLOR_FORMAT::AL16, mango::image::LuminanceFormat(16, 0x0000FF00, 0x000000FF)},
     {M4Image::COLOR_FORMAT::A8, mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0)},
     {M4Image::COLOR_FORMAT::L8, mango::image::LuminanceFormat(8, 0x000000FF, 0x00000000)},
     {M4Image::COLOR_FORMAT::XXXL32, mango::image::LuminanceFormat(32, 0xFF000000, 0x00000000)},
-    {M4Image::COLOR_FORMAT::XXLA32, mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000)},
+    {M4Image::COLOR_FORMAT::XXLA32, mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000)}
 };
 
 static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
@@ -472,6 +484,7 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
         destinationFormat = PIXMAN_a8r8g8b8;
         return M4Image::COLOR_FORMAT::XXXL32;
         case M4Image::COLOR_FORMAT::LA16:
+        case M4Image::COLOR_FORMAT::AL16:
         case M4Image::COLOR_FORMAT::XXLA32:
         // for COLOR_FORMAT::LA16, mango reads the image in XXLA format
         // the luminance can't be in the alpha channel now
@@ -513,6 +526,13 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
     // means to "flip" the colour, as Pixman always thinks the image is ABGR
     destinationFormat = BGRA_PIXMAN_FORMAT_CODE_MAP.at(colorFormat);
     return M4Image::COLOR_FORMAT::BGRA32;
+}
+
+std::optional<M4Image::COLOR_FORMAT> getConvertColorFormatOptional(M4Image::COLOR_FORMAT colorFormat) {
+    if (colorFormat == M4Image::COLOR_FORMAT::LA16 || colorFormat == M4Image::COLOR_FORMAT::AL16) {
+        return colorFormat;
+    }
+    return std::nullopt;
 }
 
 // if we need to premultiply the colours
@@ -584,8 +604,8 @@ void resizeImage(
     int width,
     int height,
     size_t stride,
+    M4Image::COLOR_FORMAT colorFormat,
     unsigned char* imagePointer,
-    bool convert,
     bool premultiplied
 ) {
     // we have to do a bunch of boilerplate setup stuff for the resize operation
@@ -598,7 +618,9 @@ void resizeImage(
     typedef std::unique_ptr<unsigned char[], MallocDeleter> CONVERT_BITS_POINTER;
     CONVERT_BITS_POINTER convertBitsPointer = 0;
 
-    if (convert) {
+    std::optional<M4Image::COLOR_FORMAT> convertColorFormatOptional = getConvertColorFormatOptional(colorFormat);
+
+    if (convertColorFormatOptional.has_value()) {
         const size_t BYTES = 3;
 
         bitsStride = (PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width;
@@ -688,8 +710,8 @@ void resizeImage(
 
     // as a final step we need to unpremultiply
     // as also convert down to 16-bit colour as necessary
-    if (convert) {
-        convertColors((M4Image::Color32*)bitsPointer, width, height, stride, imagePointer, unpremultiply);
+    if (convertColorFormatOptional.has_value()) {
+        convertColors((M4Image::Color32*)bitsPointer, width, height, stride, convertColorFormatOptional.value(), imagePointer, unpremultiply);
         return;
     } else if (unpremultiply) {
         unpremultiplyColors((M4Image::Color32*)bitsPointer, width, height, stride);
@@ -833,8 +855,8 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
         width,
         height,
         stride,
+        colorFormat,
         imagePointer,
-        colorFormat == COLOR_FORMAT::LA16,
         premultiplied || !INPUT_SURFACE.format.isAlpha()
     );
 }
@@ -963,8 +985,8 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
         width,
         height,
         stride,
+        colorFormat,
         imagePointer,
-        colorFormat == COLOR_FORMAT::LA16,
         premultiplied || !imageHeader.format.isAlpha()
     );
 
