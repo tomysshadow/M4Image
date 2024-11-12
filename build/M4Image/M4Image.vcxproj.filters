@@ -18,9 +18,6 @@
     <ClInclude Include="..\..\include\M4Image\M4Image.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\include\M4Image\scope_guard.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\include\M4Image\shared.h">
       <Filter>Header Files</Filter>
     </ClInclude>

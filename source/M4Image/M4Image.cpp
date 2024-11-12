@@ -1,9 +1,9 @@
 #include "M4Image/M4Image.h"
-#include "M4Image/scope_guard.hpp"
 #include <array>
 #include <map>
 #include <optional>
 #include <memory>
+#include <scope_guard.hpp>
 
 #include <mango/image/surface.hpp>
 #include <mango/image/decoder.hpp>
