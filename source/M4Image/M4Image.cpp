@@ -30,9 +30,9 @@ constexpr CHANNEL_UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
     // alpha starts at one, since if it's zero the colour is invisible anyway (and thus would be a divide by zero)
     const size_t DIVIDE_BY_TWO = 1;
 
-    for (int channel = 0; channel <= UCHAR_MAX; channel++) {
-        for (int alpha = 1; alpha <= UCHAR_MAX; alpha++) {
-            channelUnpremultiplierArray[(channel << CHAR_BIT) | alpha] = clampUCHAR(((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha);
+    for (unsigned short channel = 0; channel <= UCHAR_MAX; channel++) {
+        for (unsigned short alpha = 1; alpha <= UCHAR_MAX; alpha++) {
+            channelUnpremultiplierArray[(channel << CHAR_BIT) | alpha] = clampToUCHAR(((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha);
         }
     }
     return channelUnpremultiplierArray;
