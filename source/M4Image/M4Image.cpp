@@ -13,8 +13,8 @@
 #include <pixman.h>
 
 // done to ensure constant initialization and avoid static initialization order fiasco
-static constexpr M4Image::Allocator defaultAllocator;
-M4Image::Allocator M4Image::allocator = defaultAllocator;
+static constexpr M4Image::Allocator DEFAULT_ALLOCATOR;
+M4Image::Allocator M4Image::allocator = DEFAULT_ALLOCATOR;
 
 struct MallocDeleter {
     void operator()(void* block) {
