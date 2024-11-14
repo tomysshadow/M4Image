@@ -3,6 +3,7 @@
 #include <map>
 #include <optional>
 #include <memory>
+#include <stdlib.h>
 #include <limits.h>
 #include <scope_guard.hpp>
 
@@ -31,9 +32,12 @@ constexpr CHANNEL_UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
     // alpha starts at one, since if it's zero the colour is invisible anyway (and thus would be a divide by zero)
     const size_t DIVIDE_BY_TWO = 1;
 
+    unsigned short tmp = 0;
+
     for (unsigned short channel = 0; channel <= UCHAR_MAX; channel++) {
         for (unsigned short alpha = 1; alpha <= UCHAR_MAX; alpha++) {
-            channelUnpremultiplierArray[(channel << CHAR_BIT) | alpha] = ((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha;
+            tmp = ((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha;
+            channelUnpremultiplierArray[(channel << CHAR_BIT) | alpha] = __min(tmp, UCHAR_MAX);
         }
     }
     return channelUnpremultiplierArray;
