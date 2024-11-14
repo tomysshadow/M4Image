@@ -3,6 +3,7 @@
 #include <map>
 #include <optional>
 #include <memory>
+#include <limits.h>
 #include <scope_guard.hpp>
 
 #include <mango/image/surface.hpp>
@@ -32,7 +33,7 @@ constexpr CHANNEL_UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
 
     for (unsigned short channel = 0; channel <= UCHAR_MAX; channel++) {
         for (unsigned short alpha = 1; alpha <= UCHAR_MAX; alpha++) {
-            channelUnpremultiplierArray[(channel << CHAR_BIT) | alpha] = clampToUCHAR(((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha);
+            channelUnpremultiplierArray[(channel << CHAR_BIT) | alpha] = ((channel * UCHAR_MAX) + (alpha >> DIVIDE_BY_TWO)) / alpha;
         }
     }
     return channelUnpremultiplierArray;
