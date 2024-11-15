@@ -62,8 +62,8 @@ void convertColors(
     const size_t COLOR_CHANNEL_LUMINANCE = 2;
     const size_t COLOR_CHANNEL_ALPHA = 3;
 
-    size_t convertedChannelLuminance = colorFormat != M4Image::COLOR_FORMAT::LA16;
-    size_t convertedChannelAlpha = colorFormat == M4Image::COLOR_FORMAT::LA16;
+    size_t convertedChannelLuminance = colorFormat != M4Image::COLOR_FORMAT::LA;
+    size_t convertedChannelAlpha = colorFormat == M4Image::COLOR_FORMAT::LA;
 
     M4Image::Color16* convertedPointer = (M4Image::Color16*)imagePointer;
 
@@ -338,21 +338,21 @@ void AllocatorStream::write(const void* data, mango::u64 size) {
 typedef std::map<M4Image::COLOR_FORMAT, mango::image::Format> COLOR_FORMAT_MAP;
 
 static const COLOR_FORMAT_MAP FORMAT_MAP = {
-    {M4Image::COLOR_FORMAT::RGBA32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 8)},
-    {M4Image::COLOR_FORMAT::RGBX32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 0)},
-    {M4Image::COLOR_FORMAT::BGRA32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 8)},
-    {M4Image::COLOR_FORMAT::BGRX32, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 0)},
-    {M4Image::COLOR_FORMAT::RGB24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::RGB, 8, 8, 8, 0)},
-    {M4Image::COLOR_FORMAT::BGR24, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::BGR, 8, 8, 8, 0)},
-    {M4Image::COLOR_FORMAT::LA16, mango::image::LuminanceFormat(16, 0x000000FF, 0x0000FF00)},
-    {M4Image::COLOR_FORMAT::AL16, mango::image::LuminanceFormat(16, 0x0000FF00, 0x000000FF)},
-    {M4Image::COLOR_FORMAT::A8, mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0)},
-    {M4Image::COLOR_FORMAT::L8, mango::image::LuminanceFormat(8, 0x000000FF, 0x00000000)},
-    {M4Image::COLOR_FORMAT::XXXL32, mango::image::LuminanceFormat(32, 0xFF000000, 0x00000000)},
-    {M4Image::COLOR_FORMAT::XXLA32, mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000)}
+    {M4Image::COLOR_FORMAT::RGBA, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 8)},
+    {M4Image::COLOR_FORMAT::RGBX, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 0)},
+    {M4Image::COLOR_FORMAT::BGRA, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 8)},
+    {M4Image::COLOR_FORMAT::BGRX, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::BGRA, 8, 8, 8, 0)},
+    {M4Image::COLOR_FORMAT::RGB, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::RGB, 8, 8, 8, 0)},
+    {M4Image::COLOR_FORMAT::BGR, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::BGR, 8, 8, 8, 0)},
+    {M4Image::COLOR_FORMAT::LA, mango::image::LuminanceFormat(16, 0x000000FF, 0x0000FF00)},
+    {M4Image::COLOR_FORMAT::AL, mango::image::LuminanceFormat(16, 0x0000FF00, 0x000000FF)},
+    {M4Image::COLOR_FORMAT::A, mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0)},
+    {M4Image::COLOR_FORMAT::L, mango::image::LuminanceFormat(8, 0x000000FF, 0x00000000)},
+    {M4Image::COLOR_FORMAT::XXXL, mango::image::LuminanceFormat(32, 0xFF000000, 0x00000000)},
+    {M4Image::COLOR_FORMAT::XXLA, mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000)}
 };
 
-static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA32);
+static const mango::image::Format &IMAGE_HEADER_FORMAT_RGBA = FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA);
 
 void blitSurfaceImage(
     const mango::image::Surface &inputSurface,
@@ -434,30 +434,30 @@ typedef std::map<M4Image::COLOR_FORMAT, pixman_format_code_t> PIXMAN_FORMAT_CODE
 
 // no, these are not backwards (read comments for getResizeFormat function below)
 static const PIXMAN_FORMAT_CODE_MAP RGBA_PIXMAN_FORMAT_CODE_MAP = {
-    {M4Image::COLOR_FORMAT::RGBA32, PIXMAN_a8r8g8b8},
-    {M4Image::COLOR_FORMAT::RGBX32, PIXMAN_x8r8g8b8},
-    {M4Image::COLOR_FORMAT::BGRA32, PIXMAN_a8b8g8r8},
-    {M4Image::COLOR_FORMAT::BGRX32, PIXMAN_x8b8g8r8},
-    {M4Image::COLOR_FORMAT::RGB24, PIXMAN_r8g8b8},
-    {M4Image::COLOR_FORMAT::BGR24, PIXMAN_b8g8r8},
-    {M4Image::COLOR_FORMAT::A8, PIXMAN_a8}
+    {M4Image::COLOR_FORMAT::RGBA, PIXMAN_a8r8g8b8},
+    {M4Image::COLOR_FORMAT::RGBX, PIXMAN_x8r8g8b8},
+    {M4Image::COLOR_FORMAT::BGRA, PIXMAN_a8b8g8r8},
+    {M4Image::COLOR_FORMAT::BGRX, PIXMAN_x8b8g8r8},
+    {M4Image::COLOR_FORMAT::RGB, PIXMAN_r8g8b8},
+    {M4Image::COLOR_FORMAT::BGR, PIXMAN_b8g8r8},
+    {M4Image::COLOR_FORMAT::A, PIXMAN_a8}
 };
 
 static const PIXMAN_FORMAT_CODE_MAP BGRA_PIXMAN_FORMAT_CODE_MAP = {
-    {M4Image::COLOR_FORMAT::RGBA32, PIXMAN_a8b8g8r8},
-    {M4Image::COLOR_FORMAT::RGBX32, PIXMAN_x8b8g8r8},
-    {M4Image::COLOR_FORMAT::BGRA32, PIXMAN_a8r8g8b8},
-    {M4Image::COLOR_FORMAT::BGRX32, PIXMAN_x8r8g8b8},
-    {M4Image::COLOR_FORMAT::RGB24, PIXMAN_b8g8r8},
-    {M4Image::COLOR_FORMAT::BGR24, PIXMAN_r8g8b8},
-    {M4Image::COLOR_FORMAT::A8, PIXMAN_a8}
+    {M4Image::COLOR_FORMAT::RGBA, PIXMAN_a8b8g8r8},
+    {M4Image::COLOR_FORMAT::RGBX, PIXMAN_x8b8g8r8},
+    {M4Image::COLOR_FORMAT::BGRA, PIXMAN_a8r8g8b8},
+    {M4Image::COLOR_FORMAT::BGRX, PIXMAN_x8r8g8b8},
+    {M4Image::COLOR_FORMAT::RGB, PIXMAN_b8g8r8},
+    {M4Image::COLOR_FORMAT::BGR, PIXMAN_r8g8b8},
+    {M4Image::COLOR_FORMAT::A, PIXMAN_a8}
 };
 
-// the COLOR_FORMAT enum uses little endian, like mango
-// note that Pixman expresses colours in big endian (the opposite of mango)
-// so Pixman's "ARGB" is equal to mango's BGRA
+// the COLOR_FORMAT enum uses byte arrays, like mango
+// note that Pixman expresses colours in packed pixels (the opposite of mango)
+// so Pixman's "ARGB" is equal to mango's BGRA on little endian
 // this makes the constants a little confusing
-// from here on out, I'll be using little endian (like mango)
+// from here on out, I'll be using byte arrays (like mango)
 M4Image::COLOR_FORMAT getResizeColorFormat(
     M4Image::COLOR_FORMAT colorFormat,
     pixman_format_code_t &sourceFormat,
@@ -465,8 +465,8 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
     bool rgba
 ) {
     switch (colorFormat) {
-        case M4Image::COLOR_FORMAT::A8:
-        // for COLOR_FORMAT::A8, the colours do not need to be premultiplied
+        case M4Image::COLOR_FORMAT::A:
+        // for COLOR_FORMAT::A, the colours do not need to be premultiplied
         // because we toss them anyway, only keeping the alpha
         // we still use a 32-bit source format to keep things fast
         // only converting to an 8-bit format at the end, as is typical
@@ -474,23 +474,23 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
         // the input format is interchangeable between RGBA/BGRA
         sourceFormat = PIXMAN_a8r8g8b8;
         break;
-        case M4Image::COLOR_FORMAT::L8:
-        // for COLOR_FORMAT::L8, the image is loaded in XXXL format
+        case M4Image::COLOR_FORMAT::L:
+        // for COLOR_FORMAT::L, the image is loaded in XXXL format
         // so Pixman will think the luminance is "alpha"
         // the destination is set to PIXMAN_a8, tossing the reserved channels
         // this once again allows us to keep the source format 32-bit
         sourceFormat = PIXMAN_a8r8g8b8;
         destinationFormat = PIXMAN_a8;
-        return M4Image::COLOR_FORMAT::XXXL32;
-        case M4Image::COLOR_FORMAT::XXXL32:
+        return M4Image::COLOR_FORMAT::XXXL;
+        case M4Image::COLOR_FORMAT::XXXL:
         // here we just keep it 32-bit the whole way, easy peasy
-        // we do the same trick as COLOR_FORMAT::L8 where luminance = Pixman's alpha
+        // we do the same trick as COLOR_FORMAT::L where luminance = Pixman's alpha
         sourceFormat = PIXMAN_a8r8g8b8;
         destinationFormat = PIXMAN_a8r8g8b8;
-        return M4Image::COLOR_FORMAT::XXXL32;
-        case M4Image::COLOR_FORMAT::LA16:
-        case M4Image::COLOR_FORMAT::AL16:
-        case M4Image::COLOR_FORMAT::XXLA32:
+        return M4Image::COLOR_FORMAT::XXXL;
+        case M4Image::COLOR_FORMAT::LA:
+        case M4Image::COLOR_FORMAT::AL:
+        case M4Image::COLOR_FORMAT::XXLA:
         // for COLOR_FORMAT::LA16, mango reads the image in XXLA format
         // the luminance can't be in the alpha channel now
         // because we need to premultiply in this case
@@ -503,7 +503,7 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
         // kill two birds with one stone
         sourceFormat = PIXMAN_x8r8g8b8;
         destinationFormat = PIXMAN_a8r8g8b8;
-        return M4Image::COLOR_FORMAT::XXLA32;
+        return M4Image::COLOR_FORMAT::XXLA;
         default:
         // sourceFormat is only ever PIXMAN_x8r8g8b8 or PIXMAN_a8r8g8b8
         // it is the former if the colours will need to be premultiplied
@@ -524,17 +524,17 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
         // we can just "lie" to Pixman and say our RGBA image is BGRA
         // then, flip it to "RGBA" at the end if BGRA was requested
         destinationFormat = RGBA_PIXMAN_FORMAT_CODE_MAP.at(colorFormat);
-        return M4Image::COLOR_FORMAT::RGBA32;
+        return M4Image::COLOR_FORMAT::RGBA;
     }
 
     // once again, these are not wrong. Setting ARGB as the destination
     // means to "flip" the colour, as Pixman always thinks the image is ABGR
     destinationFormat = BGRA_PIXMAN_FORMAT_CODE_MAP.at(colorFormat);
-    return M4Image::COLOR_FORMAT::BGRA32;
+    return M4Image::COLOR_FORMAT::BGRA;
 }
 
 std::optional<M4Image::COLOR_FORMAT> getConvertColorFormatOptional(M4Image::COLOR_FORMAT colorFormat) {
-    if (colorFormat == M4Image::COLOR_FORMAT::LA16 || colorFormat == M4Image::COLOR_FORMAT::AL16) {
+    if (colorFormat == M4Image::COLOR_FORMAT::LA || colorFormat == M4Image::COLOR_FORMAT::AL) {
         return colorFormat;
     }
     return std::nullopt;
@@ -818,7 +818,7 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
             colorFormat,
             sourceFormat,
             destinationFormat,
-            m4Image.colorFormat == M4Image::COLOR_FORMAT::RGBA32
+            m4Image.colorFormat == M4Image::COLOR_FORMAT::RGBA
         )
 
         : colorFormat
@@ -947,10 +947,10 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
             // if we are dealing with luminance
             // there will always be a LuminanceBitmap intermediary
             // so we can safely use the same memory for
-            // both the RGBA32 and XXLA32 side of things, as we'll never
+            // both the RGBA and XXLA side of things, as we'll never
             // end up interpreting the same memory as a different format for the blit
             // we should only allocate this if it needs to be a different size
-            // like RGBA32 to L8 for example
+            // like RGBA to L for example
             if (luminanceSurfaceStride != surfaceStride) {
                 luminanceSurfaceImagePointer = std::unique_ptr<mango::u8[], MallocDeleter>((mango::u8*)M4Image::allocator.mallocSafe(luminanceSurfaceStride * (size_t)imageHeader.height));
             }
