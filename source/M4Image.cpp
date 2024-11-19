@@ -491,7 +491,7 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
         case M4Image::COLOR_FORMAT::LA:
         case M4Image::COLOR_FORMAT::AL:
         case M4Image::COLOR_FORMAT::XXLA:
-        // for COLOR_FORMAT::LA16, mango reads the image in XXLA format
+        // for COLOR_FORMAT::LA, mango reads the image in XXLA format
         // the luminance can't be in the alpha channel now
         // because we need to premultiply in this case
         // so we just shove it in the blue channel now
@@ -527,8 +527,8 @@ M4Image::COLOR_FORMAT getResizeColorFormat(
         return M4Image::COLOR_FORMAT::RGBA;
     }
 
-    // once again, these are not wrong. Setting ARGB as the destination
-    // means to "flip" the colour, as Pixman always thinks the image is ABGR
+    // once again, these are not wrong. Setting BGRA as the destination
+    // means to "flip" the colour, as Pixman always thinks the image is RGBA
     destinationFormat = BGRA_PIXMAN_FORMAT_CODE_MAP.at(colorFormat);
     return M4Image::COLOR_FORMAT::BGRA;
 }
@@ -717,7 +717,6 @@ void resizeImage(
     // as also convert down to 16-bit colour as necessary
     if (convertColorFormatOptional.has_value()) {
         convertColors((M4Image::Color32*)bitsPointer, width, height, stride, convertColorFormatOptional.value(), imagePointer, unpremultiply);
-        return;
     } else if (unpremultiply) {
         unpremultiplyColors((M4Image::Color32*)bitsPointer, width, height, stride);
     }
@@ -848,22 +847,20 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
         throw std::runtime_error("Failed to Blit Surface Image");
     }
 
-    if (!resize) {
-        return;
-    }
-
     // for our purposes, if the image is opaque, it is as if the image were premultiplied
-    resizeImage(
-        outputSurface,
-        sourceFormat,
-        destinationFormat,
-        width,
-        height,
-        stride,
-        colorFormat,
-        imagePointer,
-        premultiplied || !INPUT_SURFACE.format.isAlpha()
-    );
+    if (resize) {
+        resizeImage(
+            outputSurface,
+            sourceFormat,
+            destinationFormat,
+            width,
+            height,
+            stride,
+            colorFormat,
+            imagePointer,
+            premultiplied || !INPUT_SURFACE.format.isAlpha()
+        );
+    }
 }
 
 void M4Image::load(const unsigned char* pointer, size_t size, const char* extension, bool &linear, bool &premultiplied) {
@@ -974,26 +971,21 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
         }
     }
 
-    // if we don't need to resize the image (width and height matches) then job done
-    if (!resize) {
-        premultipliedScopeExit.dismiss();
-        linearScopeExit.dismiss();
-        return;
-    }
-        
     // here we use the same trick where if the image is opaque, we say it's premultiplied
     // however the caller should not get to know this
-    resizeImage(
-        surface,
-        sourceFormat,
-        destinationFormat,
-        width,
-        height,
-        stride,
-        colorFormat,
-        imagePointer,
-        premultiplied || !imageHeader.format.isAlpha()
-    );
+    if (resize) {
+        resizeImage(
+            surface,
+            sourceFormat,
+            destinationFormat,
+            width,
+            height,
+            stride,
+            colorFormat,
+            imagePointer,
+            premultiplied || !imageHeader.format.isAlpha()
+        );
+    }
 
     premultipliedScopeExit.dismiss();
     linearScopeExit.dismiss();
