@@ -567,7 +567,7 @@ pixman_image_t* premultiplyMaskImage(const mango::image::Surface &surface, pixma
     }
 
     MAKE_SCOPE_EXIT(maskImageScopeExit) {
-        if (!unrefImage(maskImage)) {
+        if (!M4Image::unrefImage(maskImage)) {
             throw std::runtime_error("Failed to Unref Image");
         }
     };
@@ -648,7 +648,7 @@ void resizeImage(
     }
 
     SCOPE_EXIT {
-        if (!unrefImage(destinationImage)) {
+        if (!M4Image::unrefImage(destinationImage)) {
             throw std::runtime_error("Failed to Unref Image");
         }
     };
@@ -665,7 +665,7 @@ void resizeImage(
     }
 
     SCOPE_EXIT {
-        if (!unrefImage(sourceImage)) {
+        if (!M4Image::unrefImage(sourceImage)) {
             throw std::runtime_error("Failed to Unref Image");
         }
     };
@@ -689,7 +689,7 @@ void resizeImage(
 
     SCOPE_EXIT {
         if (maskImage != sourceImage) {
-            if (!unrefImage(maskImage)) {
+            if (!M4Image::unrefImage(maskImage)) {
                 throw std::runtime_error("Failed to Unref Image");
             }
         }
