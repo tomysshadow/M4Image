@@ -161,12 +161,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\include\M4Image\M4Image.h" />
-    <ClInclude Include="..\..\include\M4Image\shared.h" />
+    <ClCompile Include="..\..\source\M4Image.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\source\M4Image\M4Image.cpp" />
-    <ClCompile Include="..\..\source\M4Image\main.cpp" />
+    <ClInclude Include="..\..\include\M4Image.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
