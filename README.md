@@ -12,3 +12,5 @@ M4Image depends on these libraries.
 - [scope_guard](https://github.com/Neargye/scope_guard) by Neargye
 - [mango](https://github.com/t0rakka/mango) by t0rakka
 - [Pixman](https://www.pixman.org) by freedesktop.org
+
+It also uses the [Pixman with CMake build system](https://github.com/CMakePorts/pixman) project as a base for CMake support.

@@ -10,5 +10,5 @@ target_sources(${PROJECT_NAME}
 		${CMAKE_CURRENT_SOURCE_DIR}/../include/M4Image.h
 )
 
-target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
-target_link_libraries(${PROJECT_NAME} scope_guard mango pixman)
+target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include ${CMAKE_CURRENT_SOURCE_DIR}/../vendor/pixman-1/pixman)
+target_link_libraries(${PROJECT_NAME} scope_guard mango pixman-1_static)

@@ -1,4 +1,6 @@
 add_subdirectory(scope_guard)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
 add_subdirectory(mango/build)
-add_subdirectory(pixman)
+set(X86_SSE2 ON CACHE BOOL "")
+set(X86_SSSE3 ON CACHE BOOL "")
+add_subdirectory(pixman-1)
