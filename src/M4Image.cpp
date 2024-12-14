@@ -432,7 +432,7 @@ unsigned char* encodeSurfaceImage(
 
 typedef std::map<M4Image::COLOR_FORMAT, pixman_format_code_t> PIXMAN_FORMAT_CODE_MAP;
 
-// no, these are not backwards (read comments for getResizeFormat function below)
+// no, these are not backwards (read comments for getResizeColorFormat function below)
 static const PIXMAN_FORMAT_CODE_MAP RGBA_PIXMAN_FORMAT_CODE_MAP = {
     {M4Image::COLOR_FORMAT::RGBA, PIXMAN_a8r8g8b8},
     {M4Image::COLOR_FORMAT::RGBX, PIXMAN_x8r8g8b8},
