@@ -511,22 +511,32 @@ std::optional<M4Image::COLOR_FORMAT> getConvertColorFormatOptional(M4Image::COLO
     return std::nullopt;
 }
 
+pixman_image_t* createImageBits(pixman_format_code_t format, int width, int height, uint32_t* bits, int stride) {
+    pixman_image_t* image = pixman_image_create_bits(
+        format,
+        width, height,
+        bits,
+        stride
+    );
+
+    if (!image) {
+        throw std::bad_alloc();
+    }
+    return image;
+}
+
 void linearizeSourceImage(pixman_image_t* sourceImage) {
     int width = pixman_image_get_width(sourceImage);
     int height = pixman_image_get_height(sourceImage);
     uint32_t* bits = pixman_image_get_data(sourceImage);
     int stride = pixman_image_get_stride(sourceImage);
 
-    pixman_image_t* sRGBImage = pixman_image_create_bits(
+    pixman_image_t* sRGBImage = createImageBits(
         PIXMAN_a8r8g8b8_sRGB,
         width, height,
         bits,
         stride
     );
-
-    if (!sRGBImage) {
-        throw std::bad_alloc();
-    }
 
     SCOPE_EXIT {
         if (!M4Image::unrefImage(sRGBImage)) {
@@ -534,16 +544,12 @@ void linearizeSourceImage(pixman_image_t* sourceImage) {
         }
     };
 
-    pixman_image_t* linearImage = pixman_image_create_bits(
+    pixman_image_t* linearImage = createImageBits(
         PIXMAN_a8r8g8b8,
         width, height,
         bits,
         stride
     );
-
-    if (!linearImage) {
-        throw std::bad_alloc();
-    }
 
     SCOPE_EXIT {
         if (!M4Image::unrefImage(linearImage)) {
@@ -577,16 +583,12 @@ pixman_image_t* premultiplyMaskImage(pixman_image_t* sourceImage) {
     int width = pixman_image_get_width(sourceImage);
     int height = pixman_image_get_height(sourceImage);
 
-    pixman_image_t* maskImage = pixman_image_create_bits(
+    pixman_image_t* maskImage = createImageBits(
         PIXMAN_a8r8g8b8,
         width, height,
         pixman_image_get_data(sourceImage),
         pixman_image_get_stride(sourceImage)
     );
-
-    if (!maskImage) {
-        throw std::bad_alloc();
-    }
 
     MAKE_SCOPE_EXIT(maskImageScopeExit) {
         if (!M4Image::unrefImage(maskImage)) {
@@ -609,16 +611,12 @@ void delinearizeResizeImage(pixman_image_t* resizeImage) {
     int width = pixman_image_get_width(resizeImage);
     int height = pixman_image_get_height(resizeImage);
 
-    pixman_image_t* sRGBImage = pixman_image_create_bits(
+    pixman_image_t* sRGBImage = createImageBits(
         PIXMAN_a8r8g8b8_sRGB,
         width, height,
         pixman_image_get_data(resizeImage),
         pixman_image_get_stride(resizeImage)
     );
-
-    if (!sRGBImage) {
-        throw std::bad_alloc();
-    }
 
     SCOPE_EXIT {
         if (!M4Image::unrefImage(sRGBImage)) {
@@ -665,16 +663,12 @@ void resizeImage(
     bool linear,
     bool premultiplied
 ) {
-    pixman_image_t* sourceImage = pixman_image_create_bits(
+    pixman_image_t* sourceImage = createImageBits(
         sourceFormat,
         surface.width, surface.height,
         (uint32_t*)surface.image,
         (int)surface.stride
     );
-
-    if (!sourceImage) {
-        throw std::bad_alloc();
-    }
 
     SCOPE_EXIT {
         if (!M4Image::unrefImage(sourceImage)) {
@@ -740,16 +734,12 @@ void resizeImage(
         resizeBits = resizeBitsPointer.get();
     }
 
-    pixman_image_t* resizeImage = pixman_image_create_bits(
+    pixman_image_t* resizeImage = createImageBits(
         RESIZE_FORMAT,
         width, height,
         (uint32_t*)resizeBits,
         resizeBitsStride
     );
-
-    if (!resizeImage) {
-        throw std::bad_alloc();
-    }
 
     SCOPE_EXIT {
         if (!M4Image::unrefImage(resizeImage)) {
@@ -781,16 +771,12 @@ void resizeImage(
     if (convertColorFormatOptional.has_value()) {
         convertColors((M4Image::Color32*)resizeBits, width, height, stride, convertColorFormatOptional.value(), imagePointer);
     } else if (resizeBits != imagePointer) {
-        pixman_image_t* destinationImage = pixman_image_create_bits(
+        pixman_image_t* destinationImage = createImageBits(
             destinationFormat,
             width, height,
             (uint32_t*)imagePointer,
             (int)((PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width)
         );
-
-        if (!destinationImage) {
-            throw std::bad_alloc();
-        }
 
         SCOPE_EXIT {
             if (!M4Image::unrefImage(destinationImage)) {
