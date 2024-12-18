@@ -724,12 +724,16 @@ void resizeImage(
     const size_t BYTES = 3;
     const pixman_format_code_t RESIZE_FORMAT = PIXMAN_a8r8g8b8;
 
-    size_t resizeBitsStride = (PIXMAN_FORMAT_BPP(RESIZE_FORMAT) >> BYTES) * (size_t)width;
+    size_t resizeBitsStride = stride;
 
     BITS_POINTER resizeBitsPointer = 0;
     unsigned char* resizeBits = imagePointer;
 
-    if (destinationFormat != RESIZE_FORMAT) {
+    std::optional<M4Image::COLOR_FORMAT> convertColorFormatOptional = getConvertColorFormatOptional(colorFormat);
+
+    if (convertColorFormatOptional.has_value() || destinationFormat != RESIZE_FORMAT) {
+        resizeBitsStride = (PIXMAN_FORMAT_BPP(RESIZE_FORMAT) >> BYTES) * (size_t)width;
+
         resizeBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizeBitsStride * (size_t)height));
         resizeBits = resizeBitsPointer.get();
     }
@@ -766,8 +770,6 @@ void resizeImage(
     }
 
     // now we just need to get it into the destination format
-    std::optional<M4Image::COLOR_FORMAT> convertColorFormatOptional = getConvertColorFormatOptional(colorFormat);
-
     if (convertColorFormatOptional.has_value()) {
         convertColors((M4Image::Color32*)resizeBits, width, height, stride, convertColorFormatOptional.value(), imagePointer);
     } else if (resizeBits != imagePointer) {
@@ -775,7 +777,7 @@ void resizeImage(
             destinationFormat,
             width, height,
             (uint32_t*)imagePointer,
-            (int)((PIXMAN_FORMAT_BPP(destinationFormat) >> BYTES) * (size_t)width)
+            (int)stride
         );
 
         SCOPE_EXIT {
