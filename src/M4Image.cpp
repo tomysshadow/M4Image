@@ -630,6 +630,11 @@ void resizeImage(
             throw std::runtime_error("Failed to Unref Image");
         }
     };
+
+    // if alpha only then we don't care about linearizing
+    if (colorFormat == M4Image::COLOR_FORMAT::A) {
+        linear = true;
+    }
     
     // premultiplication and resizing both need to happen in the linear colour space
     if (!linear) {
