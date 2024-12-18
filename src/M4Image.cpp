@@ -525,11 +525,11 @@ pixman_image_t* createImageBits(pixman_format_code_t format, int width, int heig
     return image;
 }
 
-void linearizeSourceImage(pixman_image_t* sourceImage) {
-    int width = pixman_image_get_width(sourceImage);
-    int height = pixman_image_get_height(sourceImage);
-    uint32_t* bits = pixman_image_get_data(sourceImage);
-    int stride = pixman_image_get_stride(sourceImage);
+void linearizeImage(pixman_image_t* image) {
+    int width = pixman_image_get_width(image);
+    int height = pixman_image_get_height(image);
+    uint32_t* bits = pixman_image_get_data(image);
+    int stride = pixman_image_get_stride(image);
 
     pixman_image_t* sRGBImage = createImageBits(
         PIXMAN_a8r8g8b8_sRGB,
@@ -544,7 +544,7 @@ void linearizeSourceImage(pixman_image_t* sourceImage) {
         }
     };
 
-    pixman_image_t* linearImage = createImageBits(
+    pixman_image_t* resultImage = createImageBits(
         PIXMAN_a8r8g8b8,
         width, height,
         bits,
@@ -552,14 +552,14 @@ void linearizeSourceImage(pixman_image_t* sourceImage) {
     );
 
     SCOPE_EXIT {
-        if (!M4Image::unrefImage(linearImage)) {
+        if (!M4Image::unrefImage(resultImage)) {
             throw std::runtime_error("Failed to Unref Image");
         }
     };
 
     pixman_image_composite(
         PIXMAN_OP_SRC,
-        sRGBImage, NULL, linearImage,
+        sRGBImage, NULL, resultImage,
         0, 0, 0, 0, 0, 0,
         width, height
     );
@@ -579,54 +579,54 @@ void linearizeSourceImage(pixman_image_t* sourceImage) {
 // and the maskImage is what is what we actually transform later on
 // if you're totally lost on why this is needed for resizing, then
 // see: https://www.realtimerendering.com/blog/gpus-prefer-premultiplication/
-pixman_image_t* premultiplyMaskImage(pixman_image_t* sourceImage) {
-    int width = pixman_image_get_width(sourceImage);
-    int height = pixman_image_get_height(sourceImage);
+pixman_image_t* premultiplyImage(pixman_image_t* image) {
+    int width = pixman_image_get_width(image);
+    int height = pixman_image_get_height(image);
 
-    pixman_image_t* maskImage = createImageBits(
+    pixman_image_t* resultImage = createImageBits(
         PIXMAN_a8r8g8b8,
         width, height,
-        pixman_image_get_data(sourceImage),
-        pixman_image_get_stride(sourceImage)
+        pixman_image_get_data(image),
+        pixman_image_get_stride(image)
     );
 
-    MAKE_SCOPE_EXIT(maskImageScopeExit) {
-        if (!M4Image::unrefImage(maskImage)) {
+    MAKE_SCOPE_EXIT(resultImageScopeExit) {
+        if (!M4Image::unrefImage(resultImage)) {
             throw std::runtime_error("Failed to Unref Image");
         }
     };
 
     pixman_image_composite(
         PIXMAN_OP_SRC,
-        sourceImage, maskImage, maskImage,
+        image, resultImage, resultImage,
         0, 0, 0, 0, 0, 0,
         width, height
     );
 
-    maskImageScopeExit.dismiss();
-    return maskImage;
+    resultImageScopeExit.dismiss();
+    return resultImage;
 }
 
-void delinearizeResizeImage(pixman_image_t* resizeImage) {
-    int width = pixman_image_get_width(resizeImage);
-    int height = pixman_image_get_height(resizeImage);
+void sRGBImage(pixman_image_t* image) {
+    int width = pixman_image_get_width(image);
+    int height = pixman_image_get_height(image);
 
-    pixman_image_t* sRGBImage = createImageBits(
+    pixman_image_t* resultImage = createImageBits(
         PIXMAN_a8r8g8b8_sRGB,
         width, height,
-        pixman_image_get_data(resizeImage),
-        pixman_image_get_stride(resizeImage)
+        pixman_image_get_data(image),
+        pixman_image_get_stride(image)
     );
 
     SCOPE_EXIT {
-        if (!M4Image::unrefImage(sRGBImage)) {
+        if (!M4Image::unrefImage(resultImage)) {
             throw std::runtime_error("Failed to Unref Image");
         }
     };
 
     pixman_image_composite(
         PIXMAN_OP_SRC,
-        resizeImage, NULL, sRGBImage,
+        image, NULL, resultImage,
         0, 0, 0, 0, 0, 0,
         width, height
     );
@@ -677,7 +677,7 @@ void resizeImage(
     };
     
     if (!linear) {
-        linearizeSourceImage(sourceImage);
+        linearizeImage(sourceImage);
     }
 
     // we should only care about premultiplying if:
@@ -694,7 +694,7 @@ void resizeImage(
 
     // premultiply, only if we'll undo it later, and if the original image wasn't already premultiplied
     pixman_image_t* maskImage = unpremultiply
-        ? premultiplyMaskImage(sourceImage)
+        ? premultiplyImage(sourceImage)
         : sourceImage;
 
     SCOPE_EXIT {
@@ -734,7 +734,7 @@ void resizeImage(
         resizeBits = resizeBitsPointer.get();
     }
 
-    pixman_image_t* resizeImage = createImageBits(
+    pixman_image_t* resizedImage = createImageBits(
         RESIZE_FORMAT,
         width, height,
         (uint32_t*)resizeBits,
@@ -742,7 +742,7 @@ void resizeImage(
     );
 
     SCOPE_EXIT {
-        if (!M4Image::unrefImage(resizeImage)) {
+        if (!M4Image::unrefImage(resizedImage)) {
             throw std::runtime_error("Failed to Unref Image");
         }
     };
@@ -750,7 +750,7 @@ void resizeImage(
     // the actual resize happens here
     pixman_image_composite(
         PIXMAN_OP_SRC,
-        maskImage, NULL, resizeImage,
+        maskImage, NULL, resizedImage,
         0, 0, 0, 0, 0, 0,
         width, height
     );
@@ -762,7 +762,7 @@ void resizeImage(
 
     // we need to delinearize if we aren't expecting a linear image
     if (!linear) {
-        delinearizeResizeImage(resizeImage);
+        sRGBImage(resizedImage);
     }
 
     // now we just need to get it into the destination format
@@ -786,7 +786,7 @@ void resizeImage(
 
         pixman_image_composite(
             PIXMAN_OP_SRC,
-            resizeImage, NULL, destinationImage,
+            resizedImage, NULL, destinationImage,
             0, 0, 0, 0, 0, 0,
             width, height
         );
