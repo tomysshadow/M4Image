@@ -22,10 +22,10 @@ struct MallocDeleter {
     }
 };
 
-typedef std::array<unsigned char, USHRT_MAX + 1> CHANNEL_UNPREMULTIPLIER_ARRAY;
+typedef std::array<unsigned char, USHRT_MAX + 1> UNPREMULTIPLIER_ARRAY;
 
-constexpr CHANNEL_UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
-    CHANNEL_UNPREMULTIPLIER_ARRAY channelUnpremultiplierArray = {};
+constexpr UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
+    UNPREMULTIPLIER_ARRAY channelUnpremultiplierArray = {};
 
     // note: the alpha, divided by two, is added to the channel
     // so the channel is scaled instead of stripped (it works out to rounding the number, instead of flooring)
@@ -46,9 +46,9 @@ constexpr CHANNEL_UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
 // aligned to nearest 64 bytes so it is on cache lines
 // note: there is a specific IntelliSense error that it only shows for a std::array of size 65536 bytes
 // this is an IntelliSense bug, it compiles correctly: https://github.com/microsoft/vscode-cpptools/issues/5833
-alignas(64) static constexpr CHANNEL_UNPREMULTIPLIER_ARRAY UNPREMULTIPLIER_ARRAY = createChannelUnpremultiplierArray();
+alignas(64) static constexpr UNPREMULTIPLIER_ARRAY CHANNEL_UNPREMULTIPLIER_ARRAY = createChannelUnpremultiplierArray();
 
-#define UNPREMULTIPLY_CHANNEL(channel, alpha) (UNPREMULTIPLIER_ARRAY[((channel) << CHAR_BIT) | (alpha)])
+#define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER_ARRAY[((channel) << CHAR_BIT) | (alpha)])
 
 void convertColors(
     M4Image::Color32* colorPointer,
@@ -511,53 +511,52 @@ std::optional<M4Image::COLOR_FORMAT> getConvertColorFormatOptional(M4Image::COLO
     return std::nullopt;
 }
 
-pixman_image_t* makeSourceImage(const mango::image::Surface &surface, pixman_format_code_t sourceFormat, bool linear) {
-    pixman_image_t* sourceImage = pixman_image_create_bits(
-        sourceFormat,
-        surface.width, surface.height,
-        (uint32_t*)surface.image,
-        (int)surface.stride
+void linearizeSourceImage(pixman_image_t* sourceImage) {
+    int width = pixman_image_get_width(sourceImage);
+    int height = pixman_image_get_height(sourceImage);
+    uint32_t* bits = pixman_image_get_data(sourceImage);
+    int stride = pixman_image_get_stride(sourceImage);
+
+    pixman_image_t* sRGBImage = pixman_image_create_bits(
+        PIXMAN_a8r8g8b8_sRGB,
+        width, height,
+        bits,
+        stride
     );
 
-    if (!sourceImage) {
+    if (!sRGBImage) {
         throw std::bad_alloc();
     }
 
-    MAKE_SCOPE_EXIT(sourceImageScopeExit) {
-        if (!M4Image::unrefImage(sourceImage)) {
+    SCOPE_EXIT {
+        if (!M4Image::unrefImage(sRGBImage)) {
             throw std::runtime_error("Failed to Unref Image");
         }
     };
 
-    // linearize the image in place
-    if (!linear) {
-        pixman_image_t* sRGBImage = pixman_image_create_bits(
-            PIXMAN_a8r8g8b8_sRGB,
-            surface.width, surface.height,
-            (uint32_t*)surface.image,
-            (int)surface.stride
-        );
+    pixman_image_t* linearImage = pixman_image_create_bits(
+        PIXMAN_a8r8g8b8,
+        width, height,
+        bits,
+        stride
+    );
 
-        if (!sRGBImage) {
-            throw std::bad_alloc();
-        }
-
-        SCOPE_EXIT {
-            if (!M4Image::unrefImage(sRGBImage)) {
-                throw std::runtime_error("Failed to Unref Image");
-            }
-        };
-
-        pixman_image_composite(
-            PIXMAN_OP_SRC,
-            sRGBImage, NULL, sourceImage,
-            0, 0, 0, 0, 0, 0,
-            surface.width, surface.height
-        );
+    if (!linearImage) {
+        throw std::bad_alloc();
     }
 
-    sourceImageScopeExit.dismiss();
-    return sourceImage;
+    SCOPE_EXIT {
+        if (!M4Image::unrefImage(linearImage)) {
+            throw std::runtime_error("Failed to Unref Image");
+        }
+    };
+
+    pixman_image_composite(
+        PIXMAN_OP_SRC,
+        sRGBImage, NULL, linearImage,
+        0, 0, 0, 0, 0, 0,
+        width, height
+    );
 }
 
 // if we need to premultiply the colours
@@ -663,14 +662,26 @@ void resizeImage(
     bool linear,
     bool premultiplied
 ) {
-    // make the source image (linear as necessary)
-    pixman_image_t* sourceImage = makeSourceImage(surface, sourceFormat, linear);
+    pixman_image_t* sourceImage = pixman_image_create_bits(
+        sourceFormat,
+        surface.width, surface.height,
+        (uint32_t*)surface.image,
+        (int)surface.stride
+    );
+
+    if (!sourceImage) {
+        throw std::bad_alloc();
+    }
 
     SCOPE_EXIT {
         if (!M4Image::unrefImage(sourceImage)) {
             throw std::runtime_error("Failed to Unref Image");
         }
     };
+    
+    if (!linear) {
+        linearizeSourceImage(sourceImage);
+    }
 
     // we should only care about premultiplying if:
     // -the image format isn't already premultiplied (then it's the caller's problem)
