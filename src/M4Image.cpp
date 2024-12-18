@@ -573,12 +573,15 @@ void linearizeSourceImage(pixman_image_t* sourceImage) {
 // and the maskImage is what is what we actually transform later on
 // if you're totally lost on why this is needed for resizing, then
 // see: https://www.realtimerendering.com/blog/gpus-prefer-premultiplication/
-pixman_image_t* premultiplyMaskImage(const mango::image::Surface &surface, pixman_image_t* sourceImage) {
+pixman_image_t* premultiplyMaskImage(pixman_image_t* sourceImage) {
+    int width = pixman_image_get_width(sourceImage);
+    int height = pixman_image_get_height(sourceImage);
+
     pixman_image_t* maskImage = pixman_image_create_bits(
         PIXMAN_a8r8g8b8,
-        surface.width, surface.height,
-        (uint32_t*)surface.image,
-        (int)surface.stride
+        width, height,
+        pixman_image_get_data(sourceImage),
+        pixman_image_get_stride(sourceImage)
     );
 
     if (!maskImage) {
@@ -595,7 +598,7 @@ pixman_image_t* premultiplyMaskImage(const mango::image::Surface &surface, pixma
         PIXMAN_OP_SRC,
         sourceImage, maskImage, maskImage,
         0, 0, 0, 0, 0, 0,
-        surface.width, surface.height
+        width, height
     );
 
     maskImageScopeExit.dismiss();
@@ -697,7 +700,7 @@ void resizeImage(
 
     // premultiply, only if we'll undo it later, and if the original image wasn't already premultiplied
     pixman_image_t* maskImage = unpremultiply
-        ? premultiplyMaskImage(surface, sourceImage)
+        ? premultiplyMaskImage(sourceImage)
         : sourceImage;
 
     SCOPE_EXIT {
