@@ -676,6 +676,7 @@ void resizeImage(
         }
     };
     
+    // premultiplication and resizing both need to happen in the linear colour space
     if (!linear) {
         linearizeImage(sourceImage);
     }
@@ -731,7 +732,16 @@ void resizeImage(
     BITS_POINTER resizeBitsPointer = 0;
     unsigned char* resizeBits = imagePointer;
 
-    if (destinationFormat != RESIZE_FORMAT || convertColorFormatOptional.has_value()) {
+    // if we can write the colours then just swap them in the same space
+    // that is fine, we don't need to allocate a new buffer
+    // but if the bits per pixel don't match, we can't do that as we'll write into the next colour
+    // or, not have enough space
+    // and if the destination doesn't have alpha, we shouldn't touch the alpha channel of that buffer
+    // in other words, of the 32-bit destination formats, it must be one of the A formats, not X formats
+    // to take advantage of not needing to allocate a new buffer
+    if (PIXMAN_FORMAT_BPP(destinationFormat) != PIXMAN_FORMAT_BPP(RESIZE_FORMAT)
+        || PIXMAN_FORMAT_A(destinationFormat) != PIXMAN_FORMAT_A(RESIZE_FORMAT)
+        || convertColorFormatOptional.has_value()) {
         resizeBitsStride = (PIXMAN_FORMAT_BPP(RESIZE_FORMAT) >> BYTES) * (size_t)width;
 
         resizeBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizeBitsStride * (size_t)height));
@@ -759,12 +769,12 @@ void resizeImage(
         width, height
     );
 
-    // we need to unpremultiply before potentially delinearizing
+    // we need to unpremultiply before potentially going to sRGB
     if (unpremultiply) {
         unpremultiplyColors((M4Image::Color32*)resizeBits, width, height, stride);
     }
 
-    // we need to delinearize if we aren't expecting a linear image
+    // we need to go to sRGB if we aren't expecting a linear image
     if (!linear) {
         sRGBImage(resizedImage);
     }
@@ -772,7 +782,7 @@ void resizeImage(
     // now we just need to get it into the destination format
     if (convertColorFormatOptional.has_value()) {
         convertColors((M4Image::Color32*)resizeBits, width, height, stride, convertColorFormatOptional.value(), imagePointer);
-    } else if (resizeBits != imagePointer) {
+    } else if (destinationFormat != RESIZE_FORMAT) {
         pixman_image_t* destinationImage = createImageBits(
             destinationFormat,
             width, height,
