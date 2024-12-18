@@ -724,14 +724,14 @@ void resizeImage(
     const size_t BYTES = 3;
     const pixman_format_code_t RESIZE_FORMAT = PIXMAN_a8r8g8b8;
 
+    std::optional<M4Image::COLOR_FORMAT> convertColorFormatOptional = getConvertColorFormatOptional(colorFormat);
+
     size_t resizeBitsStride = stride;
 
     BITS_POINTER resizeBitsPointer = 0;
     unsigned char* resizeBits = imagePointer;
 
-    std::optional<M4Image::COLOR_FORMAT> convertColorFormatOptional = getConvertColorFormatOptional(colorFormat);
-
-    if (convertColorFormatOptional.has_value() || destinationFormat != RESIZE_FORMAT) {
+    if (destinationFormat != RESIZE_FORMAT || convertColorFormatOptional.has_value()) {
         resizeBitsStride = (PIXMAN_FORMAT_BPP(RESIZE_FORMAT) >> BYTES) * (size_t)width;
 
         resizeBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizeBitsStride * (size_t)height));
