@@ -1053,7 +1053,7 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
             stride,
             colorFormat,
             imagePointer,
-            imageHeader.linear,
+            linear,
             premultiplied || !imageHeader.format.isAlpha()
         );
     }
