@@ -631,7 +631,7 @@ void resizeImage(
             unpremultiply = false;
         }
 
-        mango::image::linearToSRGB({width, height, SURFACE_FORMAT_RGBA, (int)resizeBitsStride, resizeBits});
+        mango::image::linearToSRGB({width, height, SURFACE_FORMAT_RGBA, resizeBitsStride, resizeBits});
     }
 
     // now we just need to get it into the destination format
