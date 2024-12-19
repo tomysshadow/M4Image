@@ -237,13 +237,13 @@ static const FORMAT_MAP SURFACE_FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::AL, mango::image::LuminanceFormat(16, 0x0000FF00, 0x000000FF)},
     {M4Image::COLOR_FORMAT::A, mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0)},
     {M4Image::COLOR_FORMAT::L, mango::image::LuminanceFormat(8, 0x000000FF, 0x00000000)},
-    {M4Image::COLOR_FORMAT::XXXL, mango::image::LuminanceFormat(32, 0xFF000000, 0x00000000)},
+    {M4Image::COLOR_FORMAT::XXLX, mango::image::LuminanceFormat(32, 0x00FF0000, 0x00000000)},
     {M4Image::COLOR_FORMAT::XXLA, mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000)}
 };
 
 static const mango::image::Format &SURFACE_FORMAT_RGBA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA);
 static const mango::image::Format &SURFACE_FORMAT_BGRA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::BGRA);
-static const mango::image::Format &SURFACE_FORMAT_XXXL = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXXL);
+static const mango::image::Format &SURFACE_FORMAT_XXLX = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXLX);
 static const mango::image::Format &SURFACE_FORMAT_XXLA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXLA);
 
 static const FORMAT_MAP RESIZE_SURFACE_FORMAT_MAP = {
@@ -256,8 +256,8 @@ static const FORMAT_MAP RESIZE_SURFACE_FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::LA, SURFACE_FORMAT_XXLA},
     {M4Image::COLOR_FORMAT::AL, SURFACE_FORMAT_XXLA},
     {M4Image::COLOR_FORMAT::A, SURFACE_FORMAT_RGBA},
-    {M4Image::COLOR_FORMAT::L, SURFACE_FORMAT_XXXL},
-    {M4Image::COLOR_FORMAT::XXXL, SURFACE_FORMAT_XXXL},
+    {M4Image::COLOR_FORMAT::L, SURFACE_FORMAT_XXLX},
+    {M4Image::COLOR_FORMAT::XXLX, SURFACE_FORMAT_XXLX},
     {M4Image::COLOR_FORMAT::XXLA, SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXLA)}
 };
 
@@ -429,9 +429,10 @@ void resizeImage(
     bool linear = false,
     bool premultiplied = false
 ) {
+    // TODO: this feels wrong
     pixman_format_code_t sourceFormat = (colorFormat == M4Image::COLOR_FORMAT::A
         || colorFormat == M4Image::COLOR_FORMAT::L
-        || colorFormat == M4Image::COLOR_FORMAT::XXXL)
+        || colorFormat == M4Image::COLOR_FORMAT::XXLX)
 
         ? PIXMAN_a8r8g8b8
         : PIXMAN_x8r8g8b8;

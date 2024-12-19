@@ -93,7 +93,7 @@ class M4Image {
         L,
 
         // these colour formats are mostly for internal use (you're free to use them, though)
-        XXXL = 16000,
+        XXLX = 16000,
         XXLA
     };
 
