@@ -93,8 +93,9 @@ class M4Image {
         L,
 
         // these colour formats are mostly for internal use (you're free to use them, though)
-        XXLX = 16000,
-        XXLA
+        XXXL = 16000,
+        XXLA,
+        XXLX
     };
 
     M4IMAGE_API static Allocator allocator;
