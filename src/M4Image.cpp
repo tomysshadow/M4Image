@@ -50,59 +50,6 @@ alignas(64) static constexpr UNPREMULTIPLIER_ARRAY CHANNEL_UNPREMULTIPLIER_ARRAY
 
 #define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER_ARRAY[((channel) << CHAR_BIT) | (alpha)])
 
-void convertColors(
-    M4Image::Color32* colorPointer,
-    size_t width,
-    size_t height,
-    size_t stride,
-    M4Image::COLOR_FORMAT colorFormat,
-    unsigned char* imagePointer,
-    bool unpremultiply
-) {
-    const size_t COLOR_CHANNEL_LUMINANCE = 2;
-    const size_t COLOR_CHANNEL_ALPHA = 3;
-
-    size_t convertedChannelLuminance = colorFormat != M4Image::COLOR_FORMAT::LA;
-    size_t convertedChannelAlpha = colorFormat == M4Image::COLOR_FORMAT::LA;
-
-    M4Image::Color16* convertedPointer = (M4Image::Color16*)imagePointer;
-
-    if (unpremultiply) {
-        for (size_t i = 0; i < height; i++) {
-            for (size_t j = 0; j < width; j++) {
-                unsigned char &alpha = convertedPointer->channels[convertedChannelAlpha];
-                alpha = colorPointer->channels[COLOR_CHANNEL_ALPHA];
-
-                if (alpha) {
-                    convertedPointer->channels[convertedChannelLuminance] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[COLOR_CHANNEL_LUMINANCE], alpha);
-                }
-
-                colorPointer++;
-                convertedPointer++;
-            }
-
-            imagePointer += stride;
-            convertedPointer = (M4Image::Color16*)imagePointer;
-        }
-    } else {
-        for (size_t i = 0; i < height; i++) {
-            for (size_t j = 0; j < width; j++) {
-                M4Image::Color32 &color = *colorPointer;
-                M4Image::Color16 &converted = *convertedPointer;
-
-                converted.channels[convertedChannelAlpha] = color.channels[COLOR_CHANNEL_ALPHA];
-                converted.channels[convertedChannelLuminance] = color.channels[COLOR_CHANNEL_LUMINANCE];
-
-                colorPointer++;
-                convertedPointer++;
-            }
-
-            imagePointer += stride;
-            convertedPointer = (M4Image::Color16*)imagePointer;
-        }
-    }
-}
-
 void unpremultiplyColors(
     M4Image::Color32* colorPointer,
     size_t width,
@@ -295,12 +242,30 @@ static const FORMAT_MAP SURFACE_FORMAT_MAP = {
 };
 
 static const mango::image::Format &SURFACE_FORMAT_RGBA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA);
+static const mango::image::Format &SURFACE_FORMAT_BGRA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::BGRA);
+static const mango::image::Format &SURFACE_FORMAT_XXXL = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXXL);
+static const mango::image::Format &SURFACE_FORMAT_XXLA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXLA);
+
+static const FORMAT_MAP RESIZE_SURFACE_FORMAT_MAP = {
+    {M4Image::COLOR_FORMAT::RGBA, SURFACE_FORMAT_RGBA},
+    {M4Image::COLOR_FORMAT::RGBX, SURFACE_FORMAT_RGBA},
+    {M4Image::COLOR_FORMAT::BGRA, SURFACE_FORMAT_BGRA},
+    {M4Image::COLOR_FORMAT::BGRX, SURFACE_FORMAT_BGRA},
+    {M4Image::COLOR_FORMAT::RGB, SURFACE_FORMAT_RGBA},
+    {M4Image::COLOR_FORMAT::BGR, SURFACE_FORMAT_BGRA},
+    {M4Image::COLOR_FORMAT::LA, SURFACE_FORMAT_XXLA},
+    {M4Image::COLOR_FORMAT::AL, SURFACE_FORMAT_XXLA},
+    {M4Image::COLOR_FORMAT::A, SURFACE_FORMAT_RGBA},
+    {M4Image::COLOR_FORMAT::L, SURFACE_FORMAT_XXXL},
+    {M4Image::COLOR_FORMAT::XXXL, SURFACE_FORMAT_XXXL},
+    {M4Image::COLOR_FORMAT::XXLA, SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXLA)}
+};
 
 void blitSurfaceImage(
     const mango::image::Surface &inputSurface,
     mango::image::Surface &outputSurface,
-    bool linear,
-    bool resize
+    bool linear = false,
+    bool resize = false
 ) {
     if (!linear && resize) {
         mango::image::srgbToLinear(inputSurface);
@@ -335,8 +300,8 @@ void decodeSurfaceImage(
     const mango::image::Surface &luminanceSurface,
     mango::image::Surface &surface,
     mango::image::ImageDecoder &imageDecoder,
-    bool linear,
-    bool resize
+    bool linear = false,
+    bool resize = false
 ) {
     // uncomment the second argument to disable multithreading for testing purposes
     mango::image::ImageDecodeStatus status = imageDecoder.decode(luminanceSurface/*, {nullptr, true, false}*/);
@@ -377,62 +342,6 @@ unsigned char* encodeSurfaceImage(
 
     sizeScopeExit.dismiss();
     return bits;
-}
-
-typedef std::map<M4Image::COLOR_FORMAT, pixman_format_code_t> PIXMAN_FORMAT_CODE_MAP;
-typedef std::map<M4Image::COLOR_FORMAT, M4Image::COLOR_FORMAT> COLOR_FORMAT_MAP;
-
-static const PIXMAN_FORMAT_CODE_MAP DESTINATION_PIXMAN_FORMAT_CODE_MAP = {
-    {M4Image::COLOR_FORMAT::RGBA, PIXMAN_a8r8g8b8},
-    {M4Image::COLOR_FORMAT::RGBX, PIXMAN_x8r8g8b8},
-    {M4Image::COLOR_FORMAT::BGRA, PIXMAN_a8r8g8b8},
-    {M4Image::COLOR_FORMAT::BGRX, PIXMAN_x8r8g8b8},
-    {M4Image::COLOR_FORMAT::RGB, PIXMAN_r8g8b8},
-    {M4Image::COLOR_FORMAT::BGR, PIXMAN_r8g8b8},
-    {M4Image::COLOR_FORMAT::LA, PIXMAN_a8r8g8b8},
-    {M4Image::COLOR_FORMAT::AL, PIXMAN_a8r8g8b8},
-    {M4Image::COLOR_FORMAT::A, PIXMAN_a8},
-    {M4Image::COLOR_FORMAT::L, PIXMAN_a8},
-    {M4Image::COLOR_FORMAT::XXXL, PIXMAN_a8r8g8b8},
-    {M4Image::COLOR_FORMAT::XXLA, PIXMAN_a8r8g8b8}
-};
-
-static const COLOR_FORMAT_MAP RESIZE_COLOR_FORMAT_MAP = {
-    {M4Image::COLOR_FORMAT::RGBA, M4Image::COLOR_FORMAT::RGBA},
-    {M4Image::COLOR_FORMAT::RGBX, M4Image::COLOR_FORMAT::RGBA},
-    {M4Image::COLOR_FORMAT::BGRA, M4Image::COLOR_FORMAT::BGRA},
-    {M4Image::COLOR_FORMAT::BGRX, M4Image::COLOR_FORMAT::BGRA},
-    {M4Image::COLOR_FORMAT::RGB, M4Image::COLOR_FORMAT::RGBA},
-    {M4Image::COLOR_FORMAT::BGR, M4Image::COLOR_FORMAT::BGRA},
-    {M4Image::COLOR_FORMAT::LA, M4Image::COLOR_FORMAT::XXLA},
-    {M4Image::COLOR_FORMAT::AL, M4Image::COLOR_FORMAT::XXLA},
-    {M4Image::COLOR_FORMAT::A, M4Image::COLOR_FORMAT::RGBA},
-    {M4Image::COLOR_FORMAT::L, M4Image::COLOR_FORMAT::XXXL},
-    {M4Image::COLOR_FORMAT::XXXL, M4Image::COLOR_FORMAT::XXXL},
-    {M4Image::COLOR_FORMAT::XXLA, M4Image::COLOR_FORMAT::XXLA}
-};
-
-M4Image::COLOR_FORMAT getResizeColorFormat(
-    M4Image::COLOR_FORMAT colorFormat,
-    pixman_format_code_t &sourceFormat,
-    pixman_format_code_t &destinationFormat
-) {
-    sourceFormat = (colorFormat == M4Image::COLOR_FORMAT::A
-        || colorFormat == M4Image::COLOR_FORMAT::L
-        || colorFormat == M4Image::COLOR_FORMAT::XXXL)
-
-        ? PIXMAN_a8r8g8b8
-        : PIXMAN_x8r8g8b8;
-
-    destinationFormat = DESTINATION_PIXMAN_FORMAT_CODE_MAP.at(colorFormat);
-    return RESIZE_COLOR_FORMAT_MAP.at(colorFormat);
-}
-
-std::optional<M4Image::COLOR_FORMAT> getConvertColorFormatOptional(M4Image::COLOR_FORMAT colorFormat) {
-    if (colorFormat == M4Image::COLOR_FORMAT::LA || colorFormat == M4Image::COLOR_FORMAT::AL) {
-        return colorFormat;
-    }
-    return std::nullopt;
 }
 
 pixman_image_t* createImageBits(pixman_format_code_t format, int width, int height, uint32_t* bits, int stride) {
@@ -512,16 +421,21 @@ void setTransform(pixman_image_t* maskImage, const mango::image::Surface &surfac
 
 void resizeImage(
     mango::image::Surface &surface,
-    pixman_format_code_t sourceFormat,
-    pixman_format_code_t destinationFormat,
     int width,
     int height,
     size_t stride,
     M4Image::COLOR_FORMAT colorFormat,
     unsigned char* imagePointer,
-    bool linear,
-    bool premultiplied
+    bool linear = false,
+    bool premultiplied = false
 ) {
+    pixman_format_code_t sourceFormat = (colorFormat == M4Image::COLOR_FORMAT::A
+        || colorFormat == M4Image::COLOR_FORMAT::L
+        || colorFormat == M4Image::COLOR_FORMAT::XXXL)
+
+        ? PIXMAN_a8r8g8b8
+        : PIXMAN_x8r8g8b8;
+
     pixman_image_t* sourceImage = createImageBits(
         sourceFormat,
         surface.width, surface.height,
@@ -535,6 +449,9 @@ void resizeImage(
         }
     };
 
+    const mango::image::Format &DESTINATION_SURFACE_FORMAT = SURFACE_FORMAT_MAP.at(colorFormat);
+    const mango::image::Color &DESTINATION_SURFACE_FORMAT_SIZE = DESTINATION_SURFACE_FORMAT.size;
+
     // we should only care about premultiplying if:
     // -the image format isn't already premultiplied (then it's the caller's problem)
     // -the source format is PIXMAN_x8r8g8b8 (indicating we are meant to use it with maskImage)
@@ -544,8 +461,8 @@ void resizeImage(
     // the source format will be PIXMAN_x8r8g8b8 if it does/it matters
     bool unpremultiply = !premultiplied
         && sourceFormat == PIXMAN_x8r8g8b8
-        && PIXMAN_FORMAT_A(destinationFormat)
-        && PIXMAN_FORMAT_COLOR(destinationFormat);
+        && DESTINATION_SURFACE_FORMAT.isAlpha()
+        && (DESTINATION_SURFACE_FORMAT_SIZE.r || DESTINATION_SURFACE_FORMAT_SIZE.g || DESTINATION_SURFACE_FORMAT_SIZE.b);
 
     // premultiply, only if we'll undo it later, and if the original image wasn't already premultiplied
     pixman_image_t* maskImage = unpremultiply
@@ -579,12 +496,10 @@ void resizeImage(
     const size_t BYTES = 3;
     const pixman_format_code_t RESIZE_FORMAT = PIXMAN_a8r8g8b8;
 
-    std::optional<M4Image::COLOR_FORMAT> convertColorFormatOptional = getConvertColorFormatOptional(colorFormat);
+    size_t resizedBitsStride = stride;
 
-    size_t resizeBitsStride = stride;
-
-    BITS_POINTER resizeBitsPointer = 0;
-    unsigned char* resizeBits = imagePointer;
+    BITS_POINTER resizedBitsPointer = 0;
+    unsigned char* resizedBits = imagePointer;
 
     // if we can write the colours then just swap them in the same space
     // that is fine, we don't need to allocate a new buffer
@@ -593,20 +508,19 @@ void resizeImage(
     // and if the destination doesn't have alpha, we shouldn't touch the alpha channel of that buffer
     // in other words, of the 32-bit destination formats, it must be one of the A formats, not X formats
     // to take advantage of not needing to allocate a new buffer
-    if (PIXMAN_FORMAT_BPP(destinationFormat) != PIXMAN_FORMAT_BPP(RESIZE_FORMAT)
-        || PIXMAN_FORMAT_A(destinationFormat) != PIXMAN_FORMAT_A(RESIZE_FORMAT)
-        || convertColorFormatOptional.has_value()) {
-        resizeBitsStride = (PIXMAN_FORMAT_BPP(RESIZE_FORMAT) >> BYTES) * (size_t)width;
+    if (DESTINATION_SURFACE_FORMAT.bits != PIXMAN_FORMAT_BPP(RESIZE_FORMAT)
+        || DESTINATION_SURFACE_FORMAT.isAlpha() != (bool)PIXMAN_FORMAT_A(RESIZE_FORMAT)) {
+        resizedBitsStride = (PIXMAN_FORMAT_BPP(RESIZE_FORMAT) >> BYTES) * (size_t)width;
 
-        resizeBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizeBitsStride * (size_t)height));
-        resizeBits = resizeBitsPointer.get();
+        resizedBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizedBitsStride * (size_t)height));
+        resizedBits = resizedBitsPointer.get();
     }
 
     pixman_image_t* resizedImage = createImageBits(
         RESIZE_FORMAT,
         width, height,
-        (uint32_t*)resizeBits,
-        resizeBitsStride
+        (uint32_t*)resizedBits,
+        resizedBitsStride
     );
 
     SCOPE_EXIT {
@@ -623,45 +537,32 @@ void resizeImage(
         width, height
     );
 
+    // we need to unpremultiply before potentially going to sRGB
+    if (unpremultiply) {
+        unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, stride);
+    }
+
+    const mango::image::Surface RESIZED_SURFACE(
+        width, height,
+        surface.format, resizedBitsStride,
+        resizedBits
+    );
+
     // we need to go to sRGB if we aren't expecting a linear image
     if (!linear) {
-        // we need to unpremultiply before potentially going to sRGB
-        if (unpremultiply) {
-            unpremultiplyColors((M4Image::Color32*)resizeBits, width, height, stride);
-            unpremultiply = false;
-        }
-
-        mango::image::linearToSRGB({width, height, SURFACE_FORMAT_RGBA, resizeBitsStride, resizeBits});
+        mango::image::linearToSRGB(RESIZED_SURFACE);
     }
 
     // now we just need to get it into the destination format
-    if (convertColorFormatOptional.has_value()) {
-        convertColors((M4Image::Color32*)resizeBits, width, height, stride, convertColorFormatOptional.value(), imagePointer, unpremultiply);
-    } else if (destinationFormat != RESIZE_FORMAT) {
-        if (unpremultiply) {
-            unpremultiplyColors((M4Image::Color32*)resizeBits, width, height, stride);
-        }
-
-        pixman_image_t* destinationImage = createImageBits(
-            destinationFormat,
+    blitSurfaceImage(
+        RESIZED_SURFACE,
+    
+        mango::image::Surface(
             width, height,
-            (uint32_t*)imagePointer,
-            (int)stride
-        );
-
-        SCOPE_EXIT {
-            if (!M4Image::unrefImage(destinationImage)) {
-                throw std::runtime_error("Failed to Unref Image");
-            }
-        };
-
-        pixman_image_composite(
-            PIXMAN_OP_SRC,
-            resizedImage, NULL, destinationImage,
-            0, 0, 0, 0, 0, 0,
-            width, height
-        );
-    }
+            DESTINATION_SURFACE_FORMAT, stride,
+            imagePointer
+        )
+    );
 }
 
 void M4Image::getInfo(
@@ -749,20 +650,7 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
 
     bool resize = width != m4Image.width || height != m4Image.height;
 
-    pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
-    pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
-
-    const mango::image::Format &OUTPUT_FORMAT = SURFACE_FORMAT_MAP.at(
-        resize
-
-        ? getResizeColorFormat(
-            colorFormat,
-            sourceFormat,
-            destinationFormat
-        )
-
-        : colorFormat
-    );
+    const mango::image::Format &OUTPUT_FORMAT = resize ? RESIZE_SURFACE_FORMAT_MAP.at(colorFormat) : SURFACE_FORMAT_MAP.at(colorFormat);
 
     size_t outputSurfaceStride = stride;
     std::unique_ptr<mango::u8[], MallocDeleter> outputSurfaceImagePointer = nullptr;
@@ -796,8 +684,6 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
     if (resize) {
         resizeImage(
             outputSurface,
-            sourceFormat,
-            destinationFormat,
             width,
             height,
             stride,
@@ -842,20 +728,7 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
     linear = imageHeader.linear;
     premultiplied = imageHeader.premultiplied;
 
-    pixman_format_code_t sourceFormat = PIXMAN_x8r8g8b8;
-    pixman_format_code_t destinationFormat = PIXMAN_a8r8g8b8;
-
-    const mango::image::Format &SURFACE_FORMAT = SURFACE_FORMAT_MAP.at(
-        resize
-        
-        ? getResizeColorFormat(
-            colorFormat,
-            sourceFormat,
-            destinationFormat
-        )
-            
-        : colorFormat
-    );
+    const mango::image::Format &SURFACE_FORMAT = resize ? RESIZE_SURFACE_FORMAT_MAP.at(colorFormat) : SURFACE_FORMAT_MAP.at(colorFormat);
 
     size_t surfaceStride = stride;
     std::unique_ptr<mango::u8[], MallocDeleter> surfaceImagePointer = nullptr;
@@ -865,15 +738,15 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
         surfaceImagePointer = std::unique_ptr<mango::u8[], MallocDeleter>((mango::u8*)M4Image::allocator.mallocSafe(surfaceStride * (size_t)imageHeader.height));
     }
 
-    // if it's alpha only, there is no point in linearizing so skip it
-    // however, the caller should not know about this
-    bool resizeLinear = colorFormat == M4Image::COLOR_FORMAT::A ? true : linear;
-
     mango::image::Surface surface(
         imageHeader.width, imageHeader.height,
         SURFACE_FORMAT, surfaceStride,
         surfaceImagePointer ? surfaceImagePointer.get() : imagePointer
     );
+
+    // if it's alpha only, there is no point in linearizing so skip it
+    // however, the caller should not know about this
+    bool resizeLinear = colorFormat == M4Image::COLOR_FORMAT::A ? true : linear;
 
     // scope for temporary luminance surface stuff
     {
@@ -902,15 +775,14 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
             }
         }
 
-        const mango::image::Surface LUMINANCE_SURFACE(
-            imageHeader.width, imageHeader.height,
-            LUMINANCE_SURFACE_FORMAT, luminanceSurfaceStride,
-            luminanceSurfaceImagePointer ? luminanceSurfaceImagePointer.get() : surface.image
-        );
-
         try {
             decodeSurfaceImage(
-                LUMINANCE_SURFACE,
+                mango::image::Surface(
+                    imageHeader.width, imageHeader.height,
+                    LUMINANCE_SURFACE_FORMAT, luminanceSurfaceStride,
+                    luminanceSurfaceImagePointer ? luminanceSurfaceImagePointer.get() : surface.image
+                ),
+
                 surface,
                 imageDecoder,
                 resizeLinear,
@@ -926,8 +798,6 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
     if (resize) {
         resizeImage(
             surface,
-            sourceFormat,
-            destinationFormat,
             width,
             height,
             stride,
@@ -965,16 +835,20 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
         extension = ".";
     }
 
-    const mango::image::Surface SURFACE(
-        width, height,
-        SURFACE_FORMAT_MAP.at(colorFormat), stride,
-        imagePointer
-    );
-
     unsigned char* bits = 0;
 
     try {
-        bits = encodeSurfaceImage(SURFACE, extension, size, quality);
+        bits = encodeSurfaceImage(
+            mango::image::Surface(
+                width, height,
+                SURFACE_FORMAT_MAP.at(colorFormat), stride,
+                imagePointer
+            ),
+
+            extension,
+            size,
+            quality
+        );
     } catch (mango::Exception) {
         throw std::runtime_error("Failed to Encode Surface Image");
     }
