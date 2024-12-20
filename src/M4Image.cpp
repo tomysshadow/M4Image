@@ -376,19 +376,19 @@ void blitSurfaceImage(
 
     // if we can avoid a blit and do a direct memory copy, do that instead
     // (it is assumed the caller has ensured the width/height match)
-    if (SOURCE_SURFACE.format == outputSurface.format && SOURCE_SURFACE.stride == outputSurface.stride) {
-        // if we're direct and the image pointers match, they are already equal so copying is unnecessary
-        if (SOURCE_SURFACE.image == outputSurface.image) {
-            return;
-        }
-
-        if (memcpy_s(outputSurface.image, outputSurface.stride * (size_t)outputSurface.height, SOURCE_SURFACE.image, SOURCE_SURFACE.stride * (size_t)SOURCE_SURFACE.height)) {
-            throw std::runtime_error("Failed to Copy Memory");
-        }
+    if (SOURCE_SURFACE.format != outputSurface.format || SOURCE_SURFACE.stride != outputSurface.stride) {
+        outputSurface.blit(0, 0, SOURCE_SURFACE);
         return;
     }
 
-    outputSurface.blit(0, 0, SOURCE_SURFACE);
+    // if we're direct and the image pointers match, they are already equal so copying is unnecessary
+    if (SOURCE_SURFACE.image == outputSurface.image) {
+        return;
+    }
+
+    if (memcpy_s(outputSurface.image, outputSurface.stride * (size_t)outputSurface.height, SOURCE_SURFACE.image, SOURCE_SURFACE.stride * (size_t)SOURCE_SURFACE.height)) {
+        throw std::runtime_error("Failed to Copy Memory");
+    }
 }
 
 void decodeSurfaceImage(
