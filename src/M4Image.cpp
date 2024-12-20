@@ -50,6 +50,75 @@ alignas(64) static constexpr UNPREMULTIPLIER_ARRAY CHANNEL_UNPREMULTIPLIER_ARRAY
 
 #define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER_ARRAY[((channel) << CHAR_BIT) | (alpha)])
 
+void convertColors(
+    M4Image::Color32* colorPointer,
+    size_t width,
+    size_t height,
+    size_t stride,
+    M4Image::COLOR_FORMAT colorFormat,
+    unsigned char* imagePointer,
+    bool unpremultiply
+) {
+    const size_t COLOR_CHANNEL_LUMINANCE = 2;
+    const size_t COLOR_CHANNEL_ALPHA = 3;
+
+    if (colorFormat == M4Image::COLOR_FORMAT::XXXL) {
+        const size_t CONVERTED_CHANNEL_LUMINANCE = 3;
+
+        M4Image::Color32* convertedPointer = (M4Image::Color32*)imagePointer;
+
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                convertedPointer++->channels[CONVERTED_CHANNEL_LUMINANCE] = colorPointer++->channels[COLOR_CHANNEL_LUMINANCE];
+            }
+
+            imagePointer += stride;
+            convertedPointer = (M4Image::Color32*)imagePointer;
+        }
+        return;
+    }
+
+    size_t convertedChannelLuminance = colorFormat != M4Image::COLOR_FORMAT::LA;
+    size_t convertedChannelAlpha = colorFormat == M4Image::COLOR_FORMAT::LA;
+
+    M4Image::Color16* convertedPointer = (M4Image::Color16*)imagePointer;
+
+    if (unpremultiply) {
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                unsigned char &alpha = convertedPointer->channels[convertedChannelAlpha];
+                alpha = colorPointer->channels[COLOR_CHANNEL_ALPHA];
+
+                if (alpha) {
+                    convertedPointer->channels[convertedChannelLuminance] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[COLOR_CHANNEL_LUMINANCE], alpha);
+                }
+
+                colorPointer++;
+                convertedPointer++;
+            }
+
+            imagePointer += stride;
+            convertedPointer = (M4Image::Color16*)imagePointer;
+        }
+    } else {
+        for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+                M4Image::Color32 &color = *colorPointer;
+                M4Image::Color16 &converted = *convertedPointer;
+
+                converted.channels[convertedChannelAlpha] = color.channels[COLOR_CHANNEL_ALPHA];
+                converted.channels[convertedChannelLuminance] = color.channels[COLOR_CHANNEL_LUMINANCE];
+
+                colorPointer++;
+                convertedPointer++;
+            }
+
+            imagePointer += stride;
+            convertedPointer = (M4Image::Color16*)imagePointer;
+        }
+    }
+}
+
 void unpremultiplyColors(
     M4Image::Color32* colorPointer,
     size_t width,
@@ -502,6 +571,9 @@ void resizeImage(
     BITS_POINTER resizedBitsPointer = 0;
     unsigned char* resizedBits = imagePointer;
 
+    bool convert = colorFormat == M4Image::COLOR_FORMAT::LA
+        || colorFormat == M4Image::COLOR_FORMAT::AL;
+
     // if we can write the colours then just swap them in the same space
     // that is fine, we don't need to allocate a new buffer
     // but if the bits per pixel don't match, we can't do that as we'll write into the next colour
@@ -510,7 +582,8 @@ void resizeImage(
     // in other words, of the 32-bit destination formats, it must be one of the A formats, not X formats
     // to take advantage of not needing to allocate a new buffer
     if (surface.format.bits != DESTINATION_SURFACE_FORMAT.bits
-        || surface.format.isAlpha() != DESTINATION_SURFACE_FORMAT.isAlpha()) {
+        || surface.format.isAlpha() != DESTINATION_SURFACE_FORMAT.isAlpha()
+        || convert) {
         resizedBitsStride = (size_t)width * (size_t)surface.format.bytes();
 
         resizedBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizedBitsStride * (size_t)height));
@@ -538,11 +611,6 @@ void resizeImage(
         width, height
     );
 
-    // we need to unpremultiply before potentially going to sRGB
-    if (unpremultiply) {
-        unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, stride);
-    }
-
     const mango::image::Surface RESIZED_SURFACE(
         width, height,
         surface.format, resizedBitsStride,
@@ -551,7 +619,24 @@ void resizeImage(
 
     // we need to go to sRGB if we aren't expecting a linear image
     if (!linear) {
+        // we need to unpremultiply before going to sRGB
+        if (unpremultiply) {
+            unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, stride);
+            unpremultiply = false;
+        }
+
         mango::image::linearToSRGB(RESIZED_SURFACE);
+    }
+
+    // mango is capable of these conversions but it's pretty slow at these
+    // so I implemented my own for these specific formats
+    if (convert || colorFormat == M4Image::COLOR_FORMAT::XXXL) {
+        convertColors((M4Image::Color32*)resizedBits, width, height, stride, colorFormat, imagePointer, unpremultiply);
+        return;
+    }
+
+    if (unpremultiply) {
+        unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, stride);
     }
 
     // now we just need to get it into the destination format
