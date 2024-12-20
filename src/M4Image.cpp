@@ -605,9 +605,9 @@ void resizeImage(
     // and if the destination doesn't have alpha, we shouldn't touch the alpha channel of that buffer
     // in other words, of the 32-bit destination formats, it must be one of the A formats, not X formats
     // to take advantage of not needing to allocate a new buffer
-    if (surface.format.bits != DESTINATION_SURFACE_FORMAT.bits
-        || surface.format.isAlpha() != DESTINATION_SURFACE_FORMAT.isAlpha()
-        || convert) {
+    if (convert
+        || surface.format.bits != DESTINATION_SURFACE_FORMAT.bits
+        || surface.format.isAlpha() != DESTINATION_SURFACE_FORMAT.isAlpha()) {
         resizedBitsStride = (size_t)width * (size_t)surface.format.bytes();
 
         resizedBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizedBitsStride * (size_t)height));
