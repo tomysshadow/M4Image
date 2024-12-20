@@ -86,7 +86,7 @@ class AllocatorStream : public mango::Stream {
         mango::u64 capacity = 0;
         mango::u64 size = 0;
         mango::u64 offset = 0;
-        mango::u8* data = 0;
+        mango::u8* data = nullptr;
     };
 
     State state = {};
@@ -497,9 +497,6 @@ void resizeImage(
     // before going to the destination format
     typedef std::unique_ptr<unsigned char[], MallocDeleter> BITS_POINTER;
 
-    const size_t BYTES = 3;
-    const pixman_format_code_t RESIZE_FORMAT = PIXMAN_a8r8g8b8;
-
     size_t resizedBitsStride = stride;
 
     BITS_POINTER resizedBitsPointer = 0;
@@ -512,16 +509,16 @@ void resizeImage(
     // and if the destination doesn't have alpha, we shouldn't touch the alpha channel of that buffer
     // in other words, of the 32-bit destination formats, it must be one of the A formats, not X formats
     // to take advantage of not needing to allocate a new buffer
-    if (DESTINATION_SURFACE_FORMAT.bits != PIXMAN_FORMAT_BPP(RESIZE_FORMAT)
-        || DESTINATION_SURFACE_FORMAT.isAlpha() != (bool)PIXMAN_FORMAT_A(RESIZE_FORMAT)) {
-        resizedBitsStride = (PIXMAN_FORMAT_BPP(RESIZE_FORMAT) >> BYTES) * (size_t)width;
+    if (surface.format.bits != DESTINATION_SURFACE_FORMAT.bits
+        || surface.format.isAlpha() != DESTINATION_SURFACE_FORMAT.isAlpha()) {
+        resizedBitsStride = (size_t)width * (size_t)surface.format.bytes();
 
         resizedBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizedBitsStride * (size_t)height));
         resizedBits = resizedBitsPointer.get();
     }
 
     pixman_image_t* resizedImage = createImageBits(
-        RESIZE_FORMAT,
+        PIXMAN_a8r8g8b8,
         width, height,
         (uint32_t*)resizedBits,
         resizedBitsStride
@@ -739,7 +736,10 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
 
     if (resize) {
         surfaceStride = (size_t)imageHeader.width * (size_t)SURFACE_FORMAT.bytes();
-        surfaceImagePointer = std::unique_ptr<mango::u8[], MallocDeleter>((mango::u8*)M4Image::allocator.mallocSafe(surfaceStride * (size_t)imageHeader.height));
+
+        surfaceImagePointer = std::unique_ptr<mango::u8[], MallocDeleter>(
+            (mango::u8*)M4Image::allocator.mallocSafe(surfaceStride * (size_t)imageHeader.height)
+        );
     }
 
     mango::image::Surface surface(
@@ -775,7 +775,9 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
             // we should only allocate this if it needs to be a different size
             // like RGBA to L for example
             if (luminanceSurfaceStride != surfaceStride) {
-                luminanceSurfaceImagePointer = std::unique_ptr<mango::u8[], MallocDeleter>((mango::u8*)M4Image::allocator.mallocSafe(luminanceSurfaceStride * (size_t)imageHeader.height));
+                luminanceSurfaceImagePointer = std::unique_ptr<mango::u8[], MallocDeleter>(
+                    (mango::u8*)M4Image::allocator.mallocSafe(luminanceSurfaceStride * (size_t)imageHeader.height)
+                );
             }
         }
 
