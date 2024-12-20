@@ -654,6 +654,7 @@ void resizeImage(
 
     // mango is capable of these conversions but it's pretty slow at these
     // so I implemented my own for these specific formats
+    // the extra check for XXXL is so we don't allocate a buffer unnecessarily above
     if (convert || colorFormat == M4Image::COLOR_FORMAT::XXXL) {
         convertColors((M4Image::Color32*)resizedBits, width, height, stride, colorFormat, imagePointer, unpremultiply);
         return;
