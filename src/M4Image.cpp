@@ -122,22 +122,23 @@ void convertColors(
             imagePointer += stride;
             convertedPointer = (M4Image::Color16*)imagePointer;
         }
-    } else {
-        for (size_t i = 0; i < height; i++) {
-            for (size_t j = 0; j < width; j++) {
-                M4Image::Color32 &color = *colorPointer;
-                M4Image::Color16 &converted = *convertedPointer;
+        return;
+    }
 
-                converted.channels[convertedChannelAlpha] = color.channels[COLOR_CHANNEL_ALPHA];
-                converted.channels[convertedChannelLuminance] = color.channels[COLOR_CHANNEL_LUMINANCE];
+    for (size_t i = 0; i < height; i++) {
+        for (size_t j = 0; j < width; j++) {
+            M4Image::Color32 &color = *colorPointer;
+            M4Image::Color16 &converted = *convertedPointer;
 
-                colorPointer++;
-                convertedPointer++;
-            }
+            converted.channels[convertedChannelAlpha] = color.channels[COLOR_CHANNEL_ALPHA];
+            converted.channels[convertedChannelLuminance] = color.channels[COLOR_CHANNEL_LUMINANCE];
 
-            imagePointer += stride;
-            convertedPointer = (M4Image::Color16*)imagePointer;
+            colorPointer++;
+            convertedPointer++;
         }
+
+        imagePointer += stride;
+        convertedPointer = (M4Image::Color16*)imagePointer;
     }
 }
 
@@ -384,9 +385,10 @@ void blitSurfaceImage(
         if (memcpy_s(outputSurface.image, outputSurface.stride * (size_t)outputSurface.height, SOURCE_SURFACE.image, SOURCE_SURFACE.stride * (size_t)SOURCE_SURFACE.height)) {
             throw std::runtime_error("Failed to Copy Memory");
         }
-    } else {
-        outputSurface.blit(0, 0, SOURCE_SURFACE);
+        return;
     }
+
+    outputSurface.blit(0, 0, SOURCE_SURFACE);
 }
 
 void decodeSurfaceImage(
