@@ -89,8 +89,8 @@ class M4Image {
         BGR,
         LA,
         AL,
-        A,
         L,
+        A,
 
         // these colour formats are mostly for internal use (you're free to use them, though)
         XXXL = 16000,

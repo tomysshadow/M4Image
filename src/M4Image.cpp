@@ -62,18 +62,40 @@ void convertColors(
     const size_t COLOR_CHANNEL_LUMINANCE = 2;
     const size_t COLOR_CHANNEL_ALPHA = 3;
 
-    if (colorFormat == M4Image::COLOR_FORMAT::XXXL) {
-        const size_t CONVERTED_CHANNEL_LUMINANCE = 3;
+    switch (colorFormat) {
+        case M4Image::COLOR_FORMAT::L:
+        case M4Image::COLOR_FORMAT::A:
+        {
+            size_t colorChannel = (colorFormat == M4Image::COLOR_FORMAT::L)
+                ? COLOR_CHANNEL_LUMINANCE
+                : COLOR_CHANNEL_ALPHA;
 
-        M4Image::Color32* convertedPointer = (M4Image::Color32*)imagePointer;
+            unsigned char* convertedPointer = imagePointer;
 
-        for (size_t i = 0; i < height; i++) {
-            for (size_t j = 0; j < width; j++) {
-                convertedPointer++->channels[CONVERTED_CHANNEL_LUMINANCE] = colorPointer++->channels[COLOR_CHANNEL_LUMINANCE];
+            for (size_t i = 0; i < height; i++) {
+                for (size_t j = 0; j < width; j++) {
+                    *convertedPointer++ = colorPointer++->channels[colorChannel];
+                }
+
+                imagePointer += stride;
+                convertedPointer = imagePointer;
             }
+        }
+        return;
+        case M4Image::COLOR_FORMAT::XXXL:
+        {
+            const size_t CONVERTED_CHANNEL_LUMINANCE = 3;
 
-            imagePointer += stride;
-            convertedPointer = (M4Image::Color32*)imagePointer;
+            M4Image::Color32* convertedPointer = (M4Image::Color32*)imagePointer;
+
+            for (size_t i = 0; i < height; i++) {
+                for (size_t j = 0; j < width; j++) {
+                    convertedPointer++->channels[CONVERTED_CHANNEL_LUMINANCE] = colorPointer++->channels[COLOR_CHANNEL_LUMINANCE];
+                }
+
+                imagePointer += stride;
+                convertedPointer = (M4Image::Color32*)imagePointer;
+            }
         }
         return;
     }
@@ -304,8 +326,8 @@ static const FORMAT_MAP SURFACE_FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::BGR, mango::image::Format(24, mango::image::Format::UNORM, mango::image::Format::BGR, 8, 8, 8, 0)},
     {M4Image::COLOR_FORMAT::LA, mango::image::LuminanceFormat(16, 0x000000FF, 0x0000FF00)},
     {M4Image::COLOR_FORMAT::AL, mango::image::LuminanceFormat(16, 0x0000FF00, 0x000000FF)},
-    {M4Image::COLOR_FORMAT::A, mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0)},
     {M4Image::COLOR_FORMAT::L, mango::image::LuminanceFormat(8, 0x000000FF, 0x00000000)},
+    {M4Image::COLOR_FORMAT::A, mango::image::Format(8, mango::image::Format::UNORM, mango::image::Format::A, 8, 0, 0, 0)},
     {M4Image::COLOR_FORMAT::XXXL, mango::image::LuminanceFormat(32, 0xFF000000, 0x00000000)},
     {M4Image::COLOR_FORMAT::XXLA, mango::image::LuminanceFormat(32, 0x00FF0000, 0xFF000000)},
     {M4Image::COLOR_FORMAT::XXLX, mango::image::LuminanceFormat(32, 0x00FF0000, 0x00000000)}
@@ -325,8 +347,8 @@ static const FORMAT_MAP RESIZE_SURFACE_FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::BGR, SURFACE_FORMAT_BGRA},
     {M4Image::COLOR_FORMAT::LA, SURFACE_FORMAT_XXLA},
     {M4Image::COLOR_FORMAT::AL, SURFACE_FORMAT_XXLA},
-    {M4Image::COLOR_FORMAT::A, SURFACE_FORMAT_RGBA},
     {M4Image::COLOR_FORMAT::L, SURFACE_FORMAT_XXLX},
+    {M4Image::COLOR_FORMAT::A, SURFACE_FORMAT_RGBA},
     {M4Image::COLOR_FORMAT::XXXL, SURFACE_FORMAT_XXLX},
     {M4Image::COLOR_FORMAT::XXLA, SURFACE_FORMAT_XXLA},
     {M4Image::COLOR_FORMAT::XXLX, SURFACE_FORMAT_XXLX}
@@ -501,8 +523,8 @@ void resizeImage(
     bool premultiplied = false
 ) {
     // for formats that are only alpha or only luminance, use alpha for source format
-    pixman_format_code_t sourceFormat = (colorFormat == M4Image::COLOR_FORMAT::A
-        || colorFormat == M4Image::COLOR_FORMAT::L
+    pixman_format_code_t sourceFormat = (colorFormat == M4Image::COLOR_FORMAT::L
+        || colorFormat == M4Image::COLOR_FORMAT::A
         || colorFormat == M4Image::COLOR_FORMAT::XXXL
         || colorFormat == M4Image::COLOR_FORMAT::XXLX)
 
@@ -572,7 +594,9 @@ void resizeImage(
     unsigned char* resizedBits = imagePointer;
 
     bool convert = colorFormat == M4Image::COLOR_FORMAT::LA
-        || colorFormat == M4Image::COLOR_FORMAT::AL;
+        || colorFormat == M4Image::COLOR_FORMAT::AL
+        || colorFormat == M4Image::COLOR_FORMAT::L
+        || colorFormat == M4Image::COLOR_FORMAT::A;
 
     // if we can write the colours then just swap them in the same space
     // that is fine, we don't need to allocate a new buffer
