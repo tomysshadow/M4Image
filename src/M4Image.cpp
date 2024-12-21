@@ -599,7 +599,8 @@ void resizeImage(
     pixman_image_set_repeat(maskImage, PIXMAN_REPEAT_PAD);
 
     // create the resize bits
-    // the resize is always done to BGRA format
+    // the resize is always done to "BGRA" format
+    // (what really matters is it's 32-bit, Pixman doesn't need to know the real colour order)
     // this way, we can easily unpremultiply and delinearize the result
     // before going to the destination format
     typedef std::unique_ptr<unsigned char[], MallocDeleter> BITS_POINTER;
