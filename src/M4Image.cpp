@@ -674,6 +674,8 @@ void resizeImage(
     // so I implemented my own for these specific formats
     // the extra check for XXXL is so we don't allocate a buffer unnecessarily above
     // if the image is linear, here it is unpremultiplied simultaneously while converting it
+    // note this is only done during resizing and not blitting in general because
+    // this makes assumptions about the input format
     if (convert || colorFormat == M4Image::COLOR_FORMAT::XXXL) {
         convertColors((M4Image::Color32*)resizedBits, width, height, stride, colorFormat, imagePointer, unpremultiply);
         return;
