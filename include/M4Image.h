@@ -47,7 +47,7 @@ class M4Image {
         }
 
         template <typename Block>
-        inline void M4IMAGE_CALL reAllocSafe(Block* &block, size_t size) const {
+        inline void M4IMAGE_CALL reallocSafe(Block* &block, size_t size) const {
             if (!size) {
                 throw std::invalid_argument("size must not be zero");
             }
@@ -60,9 +60,23 @@ class M4Image {
         }
 
         private:
-        MallocProc mallocProc = ::malloc;
-        FreeProc freeProc = ::free;
-        ReAllocProc reAllocProc = ::realloc;
+        static const size_t ALIGNMENT = 64;
+
+        static void* malloc(size_t size) {
+            return _aligned_malloc(size, ALIGNMENT);
+        }
+
+        static void free(void* block) {
+            _aligned_free(block);
+        }
+
+        static void* realloc(void* block, size_t size) {
+            return _aligned_realloc(block, size, ALIGNMENT);
+        }
+
+        MallocProc mallocProc = malloc;
+        FreeProc freeProc = free;
+        ReAllocProc reAllocProc = realloc;
     };
 
     class Invalid : public std::invalid_argument {
