@@ -50,6 +50,34 @@ alignas(64) static constexpr UNPREMULTIPLIER_ARRAY CHANNEL_UNPREMULTIPLIER_ARRAY
 
 #define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER_ARRAY[((channel) << CHAR_BIT) | (alpha)])
 
+void unpremultiplyColors(
+    M4Image::Color32* colorPointer,
+    size_t width,
+    size_t height,
+    size_t stride
+) {
+    const size_t CHANNEL_ALPHA = 3;
+
+    unsigned char* rowPointer = (unsigned char*)colorPointer;
+
+    for (size_t i = 0; i < height; i++) {
+        for (size_t j = 0; j < width; j++) {
+            const unsigned char &ALPHA = colorPointer->channels[CHANNEL_ALPHA];
+
+            if (ALPHA) {
+                colorPointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[0], ALPHA);
+                colorPointer->channels[1] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[1], ALPHA);
+                colorPointer->channels[2] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[2], ALPHA);
+            }
+
+            colorPointer++;
+        }
+
+        rowPointer += stride;
+        colorPointer = (M4Image::Color32*)rowPointer;
+    }
+}
+
 void convertColors(
     M4Image::Color32* colorPointer,
     size_t width,
@@ -139,34 +167,6 @@ void convertColors(
 
         imagePointer += stride;
         convertedPointer = (M4Image::Color16*)imagePointer;
-    }
-}
-
-void unpremultiplyColors(
-    M4Image::Color32* colorPointer,
-    size_t width,
-    size_t height,
-    size_t stride
-) {
-    const size_t CHANNEL_ALPHA = 3;
-
-    unsigned char* rowPointer = (unsigned char*)colorPointer;
-
-    for (size_t i = 0; i < height; i++) {
-        for (size_t j = 0; j < width; j++) {
-            const unsigned char &ALPHA = colorPointer->channels[CHANNEL_ALPHA];
-
-            if (ALPHA) {
-                colorPointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[0], ALPHA);
-                colorPointer->channels[1] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[1], ALPHA);
-                colorPointer->channels[2] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[2], ALPHA);
-            }
-
-            colorPointer++;
-        }
-
-        rowPointer += stride;
-        colorPointer = (M4Image::Color32*)rowPointer;
     }
 }
 
@@ -346,6 +346,8 @@ static const mango::image::Format &SURFACE_FORMAT_XXLX = SURFACE_FORMAT_MAP.at(M
 // luminance formats are first decoded in RGBA, then blitted to an equivalent 32-bit format
 // they should have alpha if the destination does and shouldn't if it doesn't
 // to avoid an otherwise unnecessary allocation during resizing
+// XXLX format is used instead of XXXL because
+// that way the luminance channel gets linearized (it's not where alpha normally is)
 static const FORMAT_MAP RESIZE_SURFACE_FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::RGBA, SURFACE_FORMAT_RGBA},
     {M4Image::COLOR_FORMAT::RGBX, SURFACE_FORMAT_RGBA},
@@ -364,7 +366,7 @@ static const FORMAT_MAP RESIZE_SURFACE_FORMAT_MAP = {
 
 void blitSurfaceImage(
     const mango::image::Surface &inputSurface,
-    mango::image::Surface &outputSurface,
+    const mango::image::Surface &outputSurface,
     bool linear = false,
     bool resize = false
 ) {
@@ -405,7 +407,7 @@ void blitSurfaceImage(
 
 void decodeSurfaceImage(
     const mango::image::Surface &luminanceSurface,
-    mango::image::Surface &surface,
+    const mango::image::Surface &surface,
     mango::image::ImageDecoder &imageDecoder,
     bool linear = false,
     bool resize = false
@@ -509,7 +511,7 @@ pixman_image_t* premultiplyImage(pixman_image_t* image) {
 
 // Pixman wants a scale (like a percentage to resize by,) not a pixel size
 // so here we create that
-void setTransform(pixman_image_t* maskImage, const mango::image::Surface &surface, int width, int height) {
+void setImageTransform(pixman_image_t* image, const mango::image::Surface &surface, int width, int height) {
     // this is initialized by pixman_transform_init_identity
     pixman_transform_t transform;
     pixman_transform_init_identity(&transform);
@@ -521,13 +523,13 @@ void setTransform(pixman_image_t* maskImage, const mango::image::Surface &surfac
         throw std::runtime_error("Failed to Scale Transform");
     }
 
-    if (!pixman_image_set_transform(maskImage, &transform)) {
+    if (!pixman_image_set_transform(image, &transform)) {
         throw std::runtime_error("Failed to Set Image Transform");
     }
 }
 
 void resizeImage(
-    mango::image::Surface &surface,
+    const mango::image::Surface &surface,
     int width,
     int height,
     size_t stride,
@@ -586,7 +588,7 @@ void resizeImage(
         }
     };
 
-    setTransform(maskImage, surface, width, height);
+    setImageTransform(maskImage, surface, width, height);
 
     if (!pixman_image_set_filter(maskImage, PIXMAN_FILTER_BILINEAR, NULL, 0)) {
         throw std::runtime_error("Failed to Set Filter");
@@ -791,19 +793,19 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
     }
 
     // the resize is not done here, so the input width and height is used for the output surface
-    mango::image::Surface outputSurface(
+    const mango::image::Surface OUTPUT_SURFACE(
         m4Image.width, m4Image.height,
         OUTPUT_FORMAT, outputSurfaceStride,
         outputSurfaceImagePointer ? outputSurfaceImagePointer.get() : imagePointer
     );
     
-    // if the image is alpha only, linearizing it is pointless
+    // if we're getting alpha only, linearizing it is pointless
     if (colorFormat == M4Image::COLOR_FORMAT::A) {
         linear = true;
     }
 
     try {
-        blitSurfaceImage(INPUT_SURFACE, outputSurface, linear, resize);
+        blitSurfaceImage(INPUT_SURFACE, OUTPUT_SURFACE, linear, resize);
     } catch (mango::Exception) {
         throw std::runtime_error("Failed to Blit Surface Image");
     }
@@ -811,7 +813,7 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
     // for our purposes, if the image is opaque, it is as if the image were premultiplied
     if (resize) {
         resizeImage(
-            outputSurface,
+            OUTPUT_SURFACE,
             width,
             height,
             stride,
@@ -867,13 +869,13 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
         surfaceImagePointer = SURFACE_IMAGE_POINTER((mango::u8*)M4Image::allocator.mallocSafe(surfaceStride * (size_t)imageHeader.height));
     }
 
-    mango::image::Surface surface(
+    const mango::image::Surface SURFACE(
         imageHeader.width, imageHeader.height,
         SURFACE_FORMAT, surfaceStride,
         surfaceImagePointer ? surfaceImagePointer.get() : imagePointer
     );
 
-    // if it's alpha only, there is no point in linearizing so skip it
+    // if we want alpha only, there is no point in linearizing so skip it
     // however, the caller should not know about this
     bool resizeLinear = colorFormat == M4Image::COLOR_FORMAT::A ? true : linear;
 
@@ -886,7 +888,7 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
             ? SURFACE_FORMAT_RGBA
             : SURFACE_FORMAT;
 
-        size_t luminanceSurfaceStride = surface.stride;
+        size_t luminanceSurfaceStride = SURFACE.stride;
         SURFACE_IMAGE_POINTER luminanceSurfaceImagePointer = nullptr;
 
         if (isLuminance) {
@@ -909,10 +911,10 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
                 mango::image::Surface(
                     imageHeader.width, imageHeader.height,
                     LUMINANCE_SURFACE_FORMAT, luminanceSurfaceStride,
-                    luminanceSurfaceImagePointer ? luminanceSurfaceImagePointer.get() : surface.image
+                    luminanceSurfaceImagePointer ? luminanceSurfaceImagePointer.get() : SURFACE.image
                 ),
 
-                surface,
+                SURFACE,
                 imageDecoder,
                 resizeLinear,
                 resize
@@ -926,7 +928,7 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
     // however the caller should not get to know this
     if (resize) {
         resizeImage(
-            surface,
+            SURFACE,
             width,
             height,
             stride,
