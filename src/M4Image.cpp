@@ -388,13 +388,13 @@ void blitSurfaceImage(
     const mango::image::Surface &SOURCE_SURFACE = luminanceBitmapOptional.has_value() ? luminanceBitmapOptional.value() : inputSurface;
 
     // if we're forced to do a blit because they don't match, do it
-    if (SOURCE_SURFACE.format != outputSurface.format || SOURCE_SURFACE.stride != outputSurface.stride) {
+    if (outputSurface.format != SOURCE_SURFACE.format || outputSurface.stride != SOURCE_SURFACE.stride) {
         outputSurface.blit(0, 0, SOURCE_SURFACE);
         return;
     }
 
     // if we're direct and the image pointers match, they are already equal so copying is unnecessary
-    if (SOURCE_SURFACE.image == outputSurface.image) {
+    if (outputSurface.image == SOURCE_SURFACE.image) {
         return;
     }
 
