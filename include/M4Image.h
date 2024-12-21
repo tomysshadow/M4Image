@@ -65,15 +65,15 @@ class M4Image {
         // (though this is not required)
         static const size_t ALIGNMENT = 64;
 
-        inline static void* malloc(size_t size) {
+        inline static void* M4IMAGE_CALL malloc(size_t size) {
             return _aligned_malloc(size, ALIGNMENT);
         }
 
-        inline static void free(void* block) {
+        inline static void M4IMAGE_CALL free(void* block) {
             _aligned_free(block);
         }
 
-        inline static void* realloc(void* block, size_t size) {
+        inline static void* M4IMAGE_CALL realloc(void* block, size_t size) {
             return _aligned_realloc(block, size, ALIGNMENT);
         }
 
@@ -141,7 +141,7 @@ class M4Image {
 
     // ignore this method
     // it is only declared here in the header so it can be made inline
-    static inline bool unrefImage(pixman_image_t* &image) {
+    static inline bool M4IMAGE_CALL unrefImage(pixman_image_t* &image) {
         if (image) {
             if (!pixman_image_unref(image)) {
                 return false;
