@@ -130,8 +130,8 @@ void convertColors(
             M4Image::Color32 &color = *colorPointer;
             M4Image::Color16 &converted = *convertedPointer;
 
-            converted.channels[convertedChannelAlpha] = color.channels[COLOR_CHANNEL_ALPHA];
             converted.channels[convertedChannelLuminance] = color.channels[COLOR_CHANNEL_LUMINANCE];
+            converted.channels[convertedChannelAlpha] = color.channels[COLOR_CHANNEL_ALPHA];
 
             colorPointer++;
             convertedPointer++;
@@ -334,11 +334,18 @@ static const FORMAT_MAP SURFACE_FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::XXLX, mango::image::LuminanceFormat(32, 0x00FF0000, 0x00000000)}
 };
 
+// formats used internally for resizing
 static const mango::image::Format &SURFACE_FORMAT_RGBA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::RGBA);
 static const mango::image::Format &SURFACE_FORMAT_BGRA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::BGRA);
 static const mango::image::Format &SURFACE_FORMAT_XXLA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXLA);
 static const mango::image::Format &SURFACE_FORMAT_XXLX = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXLX);
 
+
+// resizes are always done in 32-bit formats
+// mango has fast paths for decoding RGBA and BGRA, so these are mostly used
+// luminance formats are first decoded in RGBA, then blitted to an equivalent 32-bit format
+// they should have alpha if the destination does and shouldn't if it doesn't
+// to avoid an otherwise unnecessary allocation during resizing
 static const FORMAT_MAP RESIZE_SURFACE_FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::RGBA, SURFACE_FORMAT_RGBA},
     {M4Image::COLOR_FORMAT::RGBX, SURFACE_FORMAT_RGBA},
@@ -361,6 +368,10 @@ void blitSurfaceImage(
     bool linear = false,
     bool resize = false
 ) {
+    // if we are resizing, then resizeImage will expect the image to be linear
+    // if we're dealing with luminance (immediately after this) it will need to be linear as well
+    // we don't want to linearize the image for LuminanceBitmap then undo it then redo it again
+    // so linearize the image here and keep it that way for the resize
     if (!linear && resize) {
         mango::image::srgbToLinear(inputSurface);
         linear = true;
@@ -374,8 +385,7 @@ void blitSurfaceImage(
 
     const mango::image::Surface &SOURCE_SURFACE = luminanceBitmapOptional.has_value() ? luminanceBitmapOptional.value() : inputSurface;
 
-    // if we can avoid a blit and do a direct memory copy, do that instead
-    // (it is assumed the caller has ensured the width/height match)
+    // if we're forced to do a blit because they don't match, do it
     if (SOURCE_SURFACE.format != outputSurface.format || SOURCE_SURFACE.stride != outputSurface.stride) {
         outputSurface.blit(0, 0, SOURCE_SURFACE);
         return;
@@ -386,6 +396,8 @@ void blitSurfaceImage(
         return;
     }
 
+    // if we can avoid a blit and do a direct memory copy, do that instead
+    // (it is assumed the caller has ensured the width/height match)
     if (memcpy_s(outputSurface.image, outputSurface.stride * (size_t)outputSurface.height, SOURCE_SURFACE.image, SOURCE_SURFACE.stride * (size_t)SOURCE_SURFACE.height)) {
         throw std::runtime_error("Failed to Copy Memory");
     }
@@ -590,15 +602,16 @@ void resizeImage(
     // before going to the destination format
     typedef std::unique_ptr<unsigned char[], MallocDeleter> BITS_POINTER;
 
-    size_t resizedBitsStride = stride;
-
-    BITS_POINTER resizedBitsPointer = 0;
-    unsigned char* resizedBits = imagePointer;
-
+    // these formats are not 32-bit so will need a larger buffer during the resize
     bool convert = colorFormat == M4Image::COLOR_FORMAT::LA
         || colorFormat == M4Image::COLOR_FORMAT::AL
         || colorFormat == M4Image::COLOR_FORMAT::L
         || colorFormat == M4Image::COLOR_FORMAT::A;
+
+    size_t resizedBitsStride = stride;
+
+    BITS_POINTER resizedBitsPointer = 0;
+    unsigned char* resizedBits = imagePointer;
 
     // if we can write the colours then just swap them in the same space
     // that is fine, we don't need to allocate a new buffer
@@ -657,11 +670,13 @@ void resizeImage(
     // mango is capable of these conversions but it's pretty slow at these
     // so I implemented my own for these specific formats
     // the extra check for XXXL is so we don't allocate a buffer unnecessarily above
+    // if the image is linear, here it is unpremultiplied simultaneously while converting it
     if (convert || colorFormat == M4Image::COLOR_FORMAT::XXXL) {
         convertColors((M4Image::Color32*)resizedBits, width, height, stride, colorFormat, imagePointer, unpremultiply);
         return;
     }
 
+    // if the image is linear, then we unpremultiply here
     if (unpremultiply) {
         unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, stride);
     }
@@ -782,6 +797,7 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
         outputSurfaceImagePointer ? outputSurfaceImagePointer.get() : imagePointer
     );
     
+    // if the image is alpha only, linearizing it is pointless
     if (colorFormat == M4Image::COLOR_FORMAT::A) {
         linear = true;
     }
@@ -836,15 +852,16 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
 
     mango::image::ImageHeader imageHeader = imageDecoder.header();
 
-    bool resize = width != imageHeader.width || height != imageHeader.height;
     linear = imageHeader.linear;
     premultiplied = imageHeader.premultiplied;
+    bool resize = width != imageHeader.width || height != imageHeader.height;
 
     const mango::image::Format &SURFACE_FORMAT = resize ? RESIZE_SURFACE_FORMAT_MAP.at(colorFormat) : SURFACE_FORMAT_MAP.at(colorFormat);
 
     size_t surfaceStride = stride;
     SURFACE_IMAGE_POINTER surfaceImagePointer = nullptr;
 
+    // if we're resizing, create a buffer that recieves the originally sized image
     if (resize) {
         surfaceStride = (size_t)imageHeader.width * (size_t)SURFACE_FORMAT.bytes();
         surfaceImagePointer = SURFACE_IMAGE_POINTER((mango::u8*)M4Image::allocator.mallocSafe(surfaceStride * (size_t)imageHeader.height));
