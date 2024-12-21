@@ -60,17 +60,20 @@ class M4Image {
         }
 
         private:
+        // by default the allocator will use aligned malloc
+        // for SIMD it is best when allocations are aligned
+        // (though this is not required)
         static const size_t ALIGNMENT = 64;
 
-        static void* malloc(size_t size) {
+        inline static void* malloc(size_t size) {
             return _aligned_malloc(size, ALIGNMENT);
         }
 
-        static void free(void* block) {
+        inline static void free(void* block) {
             _aligned_free(block);
         }
 
-        static void* realloc(void* block, size_t size) {
+        inline static void* realloc(void* block, size_t size) {
             return _aligned_realloc(block, size, ALIGNMENT);
         }
 
