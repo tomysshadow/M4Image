@@ -52,11 +52,14 @@ class M4Image {
                 throw std::invalid_argument("size must not be zero");
             }
 
-            block = (Block*)reAllocProc(block, size);
+            Block* tmp = (Block*)reAllocProc(block, size);
 
-            if (!block) {
+            if (!tmp) {
+                freeSafe(block);
                 throw std::bad_alloc();
             }
+
+            block = tmp;
         }
 
         private:
