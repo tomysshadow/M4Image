@@ -30,6 +30,10 @@ class M4Image {
         }
 
         inline void* M4IMAGE_CALL mallocSafe(size_t size) const {
+            if (!size) {
+                throw std::invalid_argument("size must not be zero");
+            }
+
             void* block = mallocProc(size);
 
             if (!block) {
