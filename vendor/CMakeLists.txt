@@ -3,6 +3,7 @@ add_subdirectory(scope_guard)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
 set(ENABLE_SSE2 ON CACHE BOOL "")
 set(ENABLE_SSE4 ON CACHE BOOL "")
+set(LICENSE_GPL OFF CACHE BOOL "")
 add_subdirectory(mango/build)
 
 set(X86_SSE2 ON CACHE BOOL "")
