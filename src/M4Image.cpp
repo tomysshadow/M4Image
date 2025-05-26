@@ -340,7 +340,6 @@ static const mango::image::Format &SURFACE_FORMAT_BGRA = SURFACE_FORMAT_MAP.at(M
 static const mango::image::Format &SURFACE_FORMAT_XXLA = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXLA);
 static const mango::image::Format &SURFACE_FORMAT_XXLX = SURFACE_FORMAT_MAP.at(M4Image::COLOR_FORMAT::XXLX);
 
-
 // resizes are always done in 32-bit formats
 // mango (as of latest version) has fast paths for decoding RGBA and BGRA, so these are mostly used
 // luminance formats are first decoded in RGBA, then blitted to an equivalent 32-bit format
