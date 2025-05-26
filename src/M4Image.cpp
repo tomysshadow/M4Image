@@ -56,7 +56,7 @@ void unpremultiplyColors(
     size_t height,
     size_t stride
 ) {
-    const size_t CHANNEL_ALPHA = 3;
+    static const size_t CHANNEL_ALPHA = 3;
 
     unsigned char* rowPointer = (unsigned char*)colorPointer;
 
@@ -87,8 +87,8 @@ void convertColors(
     unsigned char* imagePointer,
     bool unpremultiply
 ) {
-    const size_t COLOR_CHANNEL_LUMINANCE = 2;
-    const size_t COLOR_CHANNEL_ALPHA = 3;
+    static const size_t COLOR_CHANNEL_LUMINANCE = 2;
+    static const size_t COLOR_CHANNEL_ALPHA = 3;
 
     switch (colorFormat) {
         case M4Image::COLOR_FORMAT::L:
@@ -112,7 +112,7 @@ void convertColors(
         return;
         case M4Image::COLOR_FORMAT::XXXL:
         {
-            const size_t CONVERTED_CHANNEL_LUMINANCE = 3;
+            static const size_t CONVERTED_CHANNEL_LUMINANCE = 3;
 
             M4Image::Color32* convertedPointer = (M4Image::Color32*)imagePointer;
 
@@ -231,7 +231,7 @@ void AllocatorStream::reserve(mango::u64 offset) {
         // this number chosen because it is probably the smallest reasonable size for an image
         // (it is the exact size of a 2x2 pixel white PNG)
         // must be a power of two
-        const mango::u64 INITIAL_CAPACITY = 64;
+        static const mango::u64 INITIAL_CAPACITY = 64;
 
         capacity = INITIAL_CAPACITY;
     }
