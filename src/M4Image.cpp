@@ -254,7 +254,7 @@ void AllocatorStream::seek(mango::s64 distance, SeekMode mode) {
         state.offset += distance;
         break;
         case END:
-        state.offset = state.size - distance;
+        state.offset = state.size + distance;
     }
 }
 
@@ -662,7 +662,7 @@ void resizeImage(
     if (!linear) {
         // we need to unpremultiply before going to sRGB
         if (unpremultiply) {
-            unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, stride);
+            unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, resizedBitsStride);
             unpremultiply = false;
         }
 
@@ -676,13 +676,13 @@ void resizeImage(
     // note this is only done during resizing and not blitting in general because
     // this makes assumptions about the input format
     if (convert || colorFormat == M4Image::COLOR_FORMAT::XXXL) {
-        convertColors((M4Image::Color32*)resizedBits, width, height, stride, colorFormat, imagePointer, unpremultiply);
+        convertColors((M4Image::Color32*)resizedBits, width, height, resizedBitsStride, colorFormat, imagePointer, unpremultiply);
         return;
     }
 
     // if the image is linear, then we unpremultiply here
     if (unpremultiply) {
-        unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, stride);
+        unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, resizedBitsStride);
     }
 
     // now we just need to get it into the destination format
@@ -808,7 +808,7 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
 
     try {
         blitSurfaceImage(INPUT_SURFACE, OUTPUT_SURFACE, linear, resize);
-    } catch (mango::Exception) {
+    } catch (const mango::Exception&) {
         throw std::runtime_error("Failed to Blit Surface Image");
     }
 
@@ -921,7 +921,7 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
                 resizeLinear,
                 resize
             );
-        } catch (mango::Exception) {
+        } catch (const mango::Exception&) {
             throw std::runtime_error("Failed to Decode Surface Image");
         }
     }
@@ -982,7 +982,7 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
             size,
             quality
         );
-    } catch (mango::Exception) {
+    } catch (const mango::Exception&) {
         throw std::runtime_error("Failed to Encode Surface Image");
     }
 
