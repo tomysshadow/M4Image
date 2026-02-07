@@ -1,4 +1,5 @@
 #include "M4Image.h"
+#include <new>
 #include <array>
 #include <map>
 #include <optional>
@@ -43,10 +44,10 @@ constexpr UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
     return channelUnpremultiplierArray;
 }
 
-// aligned to nearest 64 bytes so it is on cache lines
+// aligned to std::hardware_destructive_interference_size so it is on cache lines
 // note: there is a specific IntelliSense error that it only shows for a std::array of size 65536 bytes
 // this is an IntelliSense bug, it compiles correctly: https://github.com/microsoft/vscode-cpptools/issues/5833
-alignas(64) static constexpr UNPREMULTIPLIER_ARRAY CHANNEL_UNPREMULTIPLIER_ARRAY = createChannelUnpremultiplierArray();
+alignas(std::hardware_destructive_interference_size) static constexpr UNPREMULTIPLIER_ARRAY CHANNEL_UNPREMULTIPLIER_ARRAY = createChannelUnpremultiplierArray();
 
 #define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER_ARRAY[((channel) << CHAR_BIT) | (alpha)])
 
