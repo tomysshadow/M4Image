@@ -53,9 +53,9 @@ alignas(std::hardware_destructive_interference_size) static constexpr UNPREMULTI
 
 void unpremultiplyColors(
     M4Image::Color32* colorPointer,
+    size_t rowStride,
     size_t width,
-    size_t height,
-    size_t stride
+    size_t height
 ) {
     static const size_t CHANNEL_ALPHA = 3;
 
@@ -74,7 +74,7 @@ void unpremultiplyColors(
             colorPointer++;
         }
 
-        rowPointer += stride;
+        rowPointer += rowStride;
         colorPointer = (M4Image::Color32*)rowPointer;
     }
 }
@@ -623,6 +623,9 @@ void resizeImage(
     // and if the destination doesn't have alpha, we shouldn't touch the alpha channel of that buffer
     // in other words, of the 32-bit destination formats, it must be one of the A formats, not X formats
     // to take advantage of not needing to allocate a new buffer
+    // we can't just use surface.stride for resizedBitsStride because that's the input stride (pre-resize)
+    // nor can we just use stride in this case because convertColors expects
+    // the stride to be exactly the width * the format bytes (no extra bytes on end on stride)
     if (convert
         || surface.format.bits != DESTINATION_SURFACE_FORMAT.bits
         || surface.format.isAlpha() != DESTINATION_SURFACE_FORMAT.isAlpha()) {
@@ -663,7 +666,7 @@ void resizeImage(
     if (!linear) {
         // we need to unpremultiply before going to sRGB
         if (unpremultiply) {
-            unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, resizedBitsStride);
+            unpremultiplyColors((M4Image::Color32*)resizedBits, resizedBitsStride, width, height);
             unpremultiply = false;
         }
 
@@ -684,7 +687,7 @@ void resizeImage(
 
     // if the image is linear, then we unpremultiply here
     if (unpremultiply) {
-        unpremultiplyColors((M4Image::Color32*)resizedBits, width, height, resizedBitsStride);
+        unpremultiplyColors((M4Image::Color32*)resizedBits, resizedBitsStride, width, height);
     }
 
     // now we just need to get it into the destination format
