@@ -676,8 +676,9 @@ void resizeImage(
     // if the image is linear, here it is unpremultiplied simultaneously while converting it
     // note this is only done during resizing and not blitting in general because
     // this makes assumptions about the input format
+    // important: stride here is for the converted result, not the input (resizedBits) !!!
     if (convert || colorFormat == M4Image::COLOR_FORMAT::XXXL) {
-        convertColors((M4Image::Color32*)resizedBits, width, height, resizedBitsStride, colorFormat, imagePointer, unpremultiply);
+        convertColors((M4Image::Color32*)resizedBits, width, height, stride, colorFormat, imagePointer, unpremultiply);
         return;
     }
 
