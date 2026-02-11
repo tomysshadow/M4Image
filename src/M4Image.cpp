@@ -605,11 +605,12 @@ void resizeImage(
     // before going to the destination format
     typedef std::unique_ptr<unsigned char[], MallocDeleter> BITS_POINTER;
 
-    // these formats are not 32-bit so will need a larger buffer during the resize
+    // these formats will need a larger buffer during the resize
     bool convert = colorFormat == M4Image::COLOR_FORMAT::LA
         || colorFormat == M4Image::COLOR_FORMAT::AL
         || colorFormat == M4Image::COLOR_FORMAT::L
-        || colorFormat == M4Image::COLOR_FORMAT::A;
+        || colorFormat == M4Image::COLOR_FORMAT::A
+        || colorFormat == M4Image::COLOR_FORMAT::XXXL;
 
     size_t resizedBitsStride = stride;
 
@@ -631,8 +632,12 @@ void resizeImage(
         || surface.format.isAlpha() != DESTINATION_SURFACE_FORMAT.isAlpha()) {
         resizedBitsStride = (size_t)width * (size_t)surface.format.bytes();
 
-        resizedBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizedBitsStride * (size_t)height));
-        resizedBits = resizedBitsPointer.get();
+        // XXXL only needs its own buffer if the stride isn't "normal"
+        // because this is what convertColors expects
+        if (colorFormat != M4Image::COLOR_FORMAT::XXXL || stride != resizedBitsStride) {
+            resizedBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizedBitsStride * (size_t)height));
+            resizedBits = resizedBitsPointer.get();
+        }
     }
 
     pixman_image_t* resizedImage = createImageBits(
@@ -675,12 +680,11 @@ void resizeImage(
 
     // mango is capable of these conversions but it's pretty slow at these
     // so I implemented my own for these specific formats
-    // the extra check for XXXL is so we don't allocate a buffer unnecessarily above
     // if the image is linear, here it is unpremultiplied simultaneously while converting it
     // note this is only done during resizing and not blitting in general because
     // this makes assumptions about the input format
     // important: stride here is for the converted result, not the input (resizedBits) !!!
-    if (convert || colorFormat == M4Image::COLOR_FORMAT::XXXL) {
+    if (convert) {
         convertColors((M4Image::Color32*)resizedBits, width, height, stride, colorFormat, imagePointer, unpremultiply);
         return;
     }
