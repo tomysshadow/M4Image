@@ -1,7 +1,7 @@
 #include "M4Image.h"
 #include <new>
 #include <array>
-#include <map>
+#include <unordered_map>
 #include <optional>
 #include <memory>
 #include <stdlib.h>
@@ -31,7 +31,7 @@ constexpr UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
     // note: the alpha, divided by two, is added to the channel
     // so the channel is scaled instead of stripped (it works out to rounding the number, instead of flooring)
     // alpha starts at one, since if it's zero the colour is invisible anyway (and thus would be a divide by zero)
-    const size_t DIVIDE_BY_TWO = 1;
+    constexpr size_t DIVIDE_BY_TWO = 1;
 
     unsigned short tmp = 0;
 
@@ -47,7 +47,8 @@ constexpr UNPREMULTIPLIER_ARRAY createChannelUnpremultiplierArray() {
 // aligned to std::hardware_destructive_interference_size so it is on cache lines
 // note: there is a specific IntelliSense error that it only shows for a std::array of size 65536 bytes
 // this is an IntelliSense bug, it compiles correctly: https://github.com/microsoft/vscode-cpptools/issues/5833
-alignas(std::hardware_destructive_interference_size) static constexpr UNPREMULTIPLIER_ARRAY CHANNEL_UNPREMULTIPLIER_ARRAY = createChannelUnpremultiplierArray();
+alignas(std::hardware_destructive_interference_size) static constexpr UNPREMULTIPLIER_ARRAY CHANNEL_UNPREMULTIPLIER_ARRAY
+    = createChannelUnpremultiplierArray();
 
 #define UNPREMULTIPLY_CHANNEL(channel, alpha) (CHANNEL_UNPREMULTIPLIER_ARRAY[((channel) << CHAR_BIT) | (alpha)])
 
@@ -57,18 +58,18 @@ void unpremultiplyColors(
     size_t width,
     size_t height
 ) {
-    static const size_t CHANNEL_ALPHA = 3;
+    static constexpr size_t CHANNEL_ALPHA = 3;
 
     unsigned char* rowPointer = (unsigned char*)colorPointer;
 
     for (size_t i = 0; i < height; i++) {
         for (size_t j = 0; j < width; j++) {
-            const unsigned char &ALPHA = colorPointer->channels[CHANNEL_ALPHA];
+            const unsigned char &alpha = colorPointer->channels[CHANNEL_ALPHA];
 
-            if (ALPHA) {
-                colorPointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[0], ALPHA);
-                colorPointer->channels[1] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[1], ALPHA);
-                colorPointer->channels[2] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[2], ALPHA);
+            if (alpha) {
+                colorPointer->channels[0] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[0], alpha);
+                colorPointer->channels[1] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[1], alpha);
+                colorPointer->channels[2] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[2], alpha);
             }
 
             colorPointer++;
@@ -88,8 +89,8 @@ void convertColors(
     unsigned char* imagePointer,
     bool unpremultiply
 ) {
-    static const size_t COLOR_CHANNEL_LUMINANCE = 2;
-    static const size_t COLOR_CHANNEL_ALPHA = 3;
+    static constexpr size_t COLOR_CHANNEL_LUMINANCE = 2;
+    static constexpr size_t COLOR_CHANNEL_ALPHA = 3;
 
     switch (colorFormat) {
         case M4Image::COLOR_FORMAT::L:
@@ -113,13 +114,14 @@ void convertColors(
         return;
         case M4Image::COLOR_FORMAT::XXXL:
         {
-            static const size_t CONVERTED_CHANNEL_LUMINANCE = 3;
+            static constexpr size_t CONVERTED_CHANNEL_LUMINANCE = 3;
 
             M4Image::Color32* convertedPointer = (M4Image::Color32*)imagePointer;
 
             for (size_t i = 0; i < height; i++) {
                 for (size_t j = 0; j < width; j++) {
-                    convertedPointer++->channels[CONVERTED_CHANNEL_LUMINANCE] = colorPointer++->channels[COLOR_CHANNEL_LUMINANCE];
+                    convertedPointer++->channels[CONVERTED_CHANNEL_LUMINANCE]
+                        = colorPointer++->channels[COLOR_CHANNEL_LUMINANCE];
                 }
 
                 imagePointer += stride;
@@ -141,7 +143,10 @@ void convertColors(
                 alpha = colorPointer->channels[COLOR_CHANNEL_ALPHA];
 
                 if (alpha) {
-                    convertedPointer->channels[convertedChannelLuminance] = UNPREMULTIPLY_CHANNEL(colorPointer->channels[COLOR_CHANNEL_LUMINANCE], alpha);
+                    convertedPointer->channels[convertedChannelLuminance] = UNPREMULTIPLY_CHANNEL(
+                        colorPointer->channels[COLOR_CHANNEL_LUMINANCE],
+                        alpha
+                    );
                 }
 
                 colorPointer++;
@@ -159,8 +164,11 @@ void convertColors(
             M4Image::Color32 &color = *colorPointer;
             M4Image::Color16 &converted = *convertedPointer;
 
-            converted.channels[convertedChannelLuminance] = color.channels[COLOR_CHANNEL_LUMINANCE];
-            converted.channels[convertedChannelAlpha] = color.channels[COLOR_CHANNEL_ALPHA];
+            converted.channels[convertedChannelLuminance]
+                = color.channels[COLOR_CHANNEL_LUMINANCE];
+
+            converted.channels[convertedChannelAlpha]
+                = color.channels[COLOR_CHANNEL_ALPHA];
 
             colorPointer++;
             convertedPointer++;
@@ -232,7 +240,7 @@ void AllocatorStream::reserve(mango::u64 offset) {
         // this number chosen because it is probably the smallest reasonable size for an image
         // (it is the exact size of a 2x2 pixel white PNG)
         // must be a power of two
-        static const mango::u64 INITIAL_CAPACITY = 64;
+        static constexpr mango::u64 INITIAL_CAPACITY = 64;
 
         capacity = INITIAL_CAPACITY;
     }
@@ -317,7 +325,7 @@ void AllocatorStream::write(const void* data, mango::u64 size) {
     state.offset = offset;
 }
 
-typedef std::map<M4Image::COLOR_FORMAT, mango::image::Format> FORMAT_MAP;
+typedef std::unordered_map<M4Image::COLOR_FORMAT, mango::image::Format> FORMAT_MAP;
 
 static const FORMAT_MAP SURFACE_FORMAT_MAP = {
     {M4Image::COLOR_FORMAT::RGBA, mango::image::Format(32, mango::image::Format::UNORM, mango::image::Format::RGBA, 8, 8, 8, 8)},
@@ -385,23 +393,31 @@ void blitSurfaceImage(
         luminanceBitmapOptional.emplace(inputSurface, outputSurface.format.isAlpha(), linear);
     }
 
-    const mango::image::Surface &SOURCE_SURFACE = luminanceBitmapOptional.has_value() ? luminanceBitmapOptional.value() : inputSurface;
+    const mango::image::Surface &sourceSurface = luminanceBitmapOptional.has_value()
+        ? luminanceBitmapOptional.value()
+        : inputSurface;
 
     // if we're forced to do a blit because they don't match, do it
-    if (outputSurface.format != SOURCE_SURFACE.format || outputSurface.stride != SOURCE_SURFACE.stride) {
-        outputSurface.blit(0, 0, SOURCE_SURFACE);
+    if (outputSurface.format != sourceSurface.format
+        || outputSurface.stride != sourceSurface.stride) {
+        outputSurface.blit(0, 0, sourceSurface);
         return;
     }
 
     // if we're direct and the image pointers match, they are already equal so copying is unnecessary
-    if (outputSurface.image == SOURCE_SURFACE.image) {
+    if (outputSurface.image == sourceSurface.image) {
         return;
     }
 
     // if we can avoid a blit and do a direct memory copy, do that instead
     // (it is assumed the caller has ensured the width/height match)
-    if (memcpy_s(outputSurface.image, outputSurface.stride * (size_t)outputSurface.height, SOURCE_SURFACE.image, SOURCE_SURFACE.stride * (size_t)SOURCE_SURFACE.height)) {
-        throw std::runtime_error("Failed to Copy Memory");
+    if (memcpy_s(
+        outputSurface.image,
+        outputSurface.stride * (size_t)outputSurface.height,
+        sourceSurface.image,
+        sourceSurface.stride * (size_t)sourceSurface.height
+    )) {
+        throw std::runtime_error("failed to copy memory");
     }
 }
 
@@ -413,7 +429,8 @@ void decodeSurfaceImage(
     bool resize = false
 ) {
     // uncomment the second argument to disable multithreading for testing purposes
-    mango::image::ImageDecodeStatus status = imageDecoder.decode(luminanceSurface/*, {nullptr, true, false}*/);
+    mango::image::ImageDecodeStatus status = imageDecoder.decode(
+        luminanceSurface/*, {nullptr, true, false}*/);
 
     // status is false if decoding the image failed
     if (!status) {
@@ -435,7 +452,9 @@ unsigned char* encodeSurfaceImage(
     };
 
     AllocatorStream allocatorStream;
-    mango::image::ImageEncodeStatus status = surface.save(allocatorStream, extension, { {}, {}, quality });
+
+    mango::image::ImageEncodeStatus status = surface.save(
+        allocatorStream, extension, { {}, {}, quality });
 
     if (!status) {
         MANGO_EXCEPTION("[INFO] {}", status.info);
@@ -453,7 +472,12 @@ unsigned char* encodeSurfaceImage(
     return bits;
 }
 
-pixman_image_t* createImageBits(pixman_format_code_t format, int width, int height, uint32_t* bits, int stride) {
+pixman_image_t* createImageBits(
+    pixman_format_code_t format,
+    int width, int height,
+    uint32_t* bits,
+    int stride
+) {
     pixman_image_t* image = pixman_image_create_bits(
         format,
         width, height,
@@ -494,7 +518,7 @@ pixman_image_t* premultiplyImage(pixman_image_t* image) {
 
     MAKE_SCOPE_EXIT(resultImageScopeExit) {
         if (!M4Image::unrefImage(resultImage)) {
-            throw std::runtime_error("Failed to Unref Image");
+            throw std::runtime_error("failed to unref image");
         }
     };
 
@@ -511,7 +535,10 @@ pixman_image_t* premultiplyImage(pixman_image_t* image) {
 
 // Pixman wants a scale (like a percentage to resize by,) not a pixel size
 // so here we create that
-void setImageTransform(pixman_image_t* image, const mango::image::Surface &surface, int width, int height) {
+void setImageTransform(
+    pixman_image_t* image, const mango::image::Surface &surface,
+    int width, int height
+) {
     // this is initialized by pixman_transform_init_identity
     pixman_transform_t transform;
     pixman_transform_init_identity(&transform);
@@ -519,12 +546,13 @@ void setImageTransform(pixman_image_t* image, const mango::image::Surface &surfa
     double sx = (double)surface.width / width;
     double sy = (double)surface.height / height;
 
-    if (!pixman_transform_scale(&transform, NULL, pixman_double_to_fixed(sx), pixman_double_to_fixed(sy))) {
-        throw std::runtime_error("Failed to Scale Transform");
+    if (!pixman_transform_scale(&transform, NULL,
+        pixman_double_to_fixed(sx), pixman_double_to_fixed(sy))) {
+        throw std::runtime_error("failed to scale transform");
     }
 
     if (!pixman_image_set_transform(image, &transform)) {
-        throw std::runtime_error("Failed to Set Image Transform");
+        throw std::runtime_error("failed to set image transform");
     }
 }
 
@@ -556,12 +584,12 @@ void resizeImage(
 
     SCOPE_EXIT {
         if (!M4Image::unrefImage(sourceImage)) {
-            throw std::runtime_error("Failed to Unref Image");
+            throw std::runtime_error("failed to unref image");
         }
     };
 
-    const mango::image::Format &DESTINATION_SURFACE_FORMAT = SURFACE_FORMAT_MAP.at(colorFormat);
-    const mango::image::Color &DESTINATION_SURFACE_FORMAT_SIZE = DESTINATION_SURFACE_FORMAT.size;
+    const mango::image::Format &destinationSurfaceFormat = SURFACE_FORMAT_MAP.at(colorFormat);
+    const mango::image::Color &destinationSurfaceFormatSize = destinationSurfaceFormat.size;
 
     // we should only care about premultiplying if:
     // -the image format isn't already premultiplied (then it's the caller's problem)
@@ -572,8 +600,10 @@ void resizeImage(
     // the source format will be PIXMAN_x8r8g8b8 if it does/it matters
     bool unpremultiply = !premultiplied
         && sourceFormat == PIXMAN_x8r8g8b8
-        && DESTINATION_SURFACE_FORMAT.isAlpha()
-        && (DESTINATION_SURFACE_FORMAT_SIZE.r || DESTINATION_SURFACE_FORMAT_SIZE.g || DESTINATION_SURFACE_FORMAT_SIZE.b);
+        && destinationSurfaceFormat.isAlpha()
+        && (destinationSurfaceFormatSize.r
+        || destinationSurfaceFormatSize.g
+        || destinationSurfaceFormatSize.b);
 
     // premultiply, only if we'll undo it later, and if the original image wasn't already premultiplied
     pixman_image_t* maskImage = unpremultiply
@@ -583,7 +613,7 @@ void resizeImage(
     SCOPE_EXIT {
         if (maskImage != sourceImage) {
             if (!M4Image::unrefImage(maskImage)) {
-                throw std::runtime_error("Failed to Unref Image");
+                throw std::runtime_error("failed to unref image");
             }
         }
     };
@@ -591,7 +621,7 @@ void resizeImage(
     setImageTransform(maskImage, surface, width, height);
 
     if (!pixman_image_set_filter(maskImage, PIXMAN_FILTER_BILINEAR, NULL, 0)) {
-        throw std::runtime_error("Failed to Set Filter");
+        throw std::runtime_error("failed to set filter");
     }
 
     // setting the repeat mode to pad prevents some semi-transparent lines at the edge of the image
@@ -628,14 +658,18 @@ void resizeImage(
     // nor can we just use stride in this case because convertColors expects
     // the stride to be exactly the width * the format bytes (no extra bytes on end on stride)
     if (convert
-        || surface.format.bits != DESTINATION_SURFACE_FORMAT.bits
-        || surface.format.isAlpha() != DESTINATION_SURFACE_FORMAT.isAlpha()) {
+        || surface.format.bits != destinationSurfaceFormat.bits
+        || surface.format.isAlpha() != destinationSurfaceFormat.isAlpha()) {
         resizedBitsStride = (size_t)width * (size_t)surface.format.bytes();
 
         // XXXL only needs its own buffer if the stride isn't "normal"
         // because this is what convertColors expects
         if (colorFormat != M4Image::COLOR_FORMAT::XXXL || stride != resizedBitsStride) {
-            resizedBitsPointer = BITS_POINTER((unsigned char*)M4Image::allocator.mallocSafe(resizedBitsStride * (size_t)height));
+            resizedBitsPointer = BITS_POINTER(
+                (unsigned char*)M4Image::allocator.mallocSafe(resizedBitsStride
+                * (size_t)height)
+            );
+
             resizedBits = resizedBitsPointer.get();
         }
     }
@@ -649,7 +683,7 @@ void resizeImage(
 
     SCOPE_EXIT {
         if (!M4Image::unrefImage(resizedImage)) {
-            throw std::runtime_error("Failed to Unref Image");
+            throw std::runtime_error("failed to unref image");
         }
     };
 
@@ -661,7 +695,7 @@ void resizeImage(
         width, height
     );
 
-    const mango::image::Surface RESIZED_SURFACE(
+    const mango::image::Surface resizedSurface(
         width, height,
         surface.format, resizedBitsStride,
         resizedBits
@@ -675,7 +709,7 @@ void resizeImage(
             unpremultiply = false;
         }
 
-        mango::image::linearToSRGB(RESIZED_SURFACE);
+        mango::image::linearToSRGB(resizedSurface);
     }
 
     // mango is capable of these conversions but it's pretty slow at these
@@ -685,22 +719,35 @@ void resizeImage(
     // this makes assumptions about the input format
     // important: stride here is for the converted result, not the input (resizedBits) !!!
     if (convert) {
-        convertColors((M4Image::Color32*)resizedBits, width, height, stride, colorFormat, imagePointer, unpremultiply);
+        convertColors(
+            (M4Image::Color32*)resizedBits,
+            width,
+            height,
+            stride,
+            colorFormat,
+            imagePointer,
+            unpremultiply
+        );
         return;
     }
 
     // if the image is linear, then we unpremultiply here
     if (unpremultiply) {
-        unpremultiplyColors((M4Image::Color32*)resizedBits, resizedBitsStride, width, height);
+        unpremultiplyColors(
+            (M4Image::Color32*)resizedBits,
+            resizedBitsStride,
+            width,
+            height
+        );
     }
 
     // now we just need to get it into the destination format
     blitSurfaceImage(
-        RESIZED_SURFACE,
+        resizedSurface,
     
         mango::image::Surface(
             width, height,
-            DESTINATION_SURFACE_FORMAT, stride,
+            destinationSurfaceFormat, stride,
             imagePointer
         )
     );
@@ -728,7 +775,7 @@ void M4Image::getInfo(
     mango::image::ImageDecoder imageDecoder(mango::ConstMemory(pointer, size), extension);
 
     if (!imageDecoder.isDecoder()) {
-        throw std::logic_error("No Decoder");
+        throw std::logic_error("no decoder");
     }
 
     mango::image::ImageHeader imageHeader = imageDecoder.header();
@@ -765,7 +812,12 @@ void M4Image::getInfo(
     }
 }
 
-M4Image::M4Image(int width, int height, size_t &stride, COLOR_FORMAT colorFormat, unsigned char* imagePointer) {
+M4Image::M4Image(
+    int width, int height,
+    size_t &stride,
+    COLOR_FORMAT colorFormat,
+    unsigned char* imagePointer
+) {
     create(width, height, stride, colorFormat, imagePointer);
 }
 
@@ -785,7 +837,7 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
         throw Invalid();
     }
 
-    const mango::image::Surface INPUT_SURFACE(
+    const mango::image::Surface inputSurface(
         m4Image.width, m4Image.height,
         SURFACE_FORMAT_MAP.at(m4Image.colorFormat), m4Image.stride,
         m4Image.imagePointer
@@ -793,20 +845,26 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
 
     bool resize = width != m4Image.width || height != m4Image.height;
 
-    const mango::image::Format &OUTPUT_FORMAT = resize ? RESIZE_SURFACE_FORMAT_MAP.at(colorFormat) : SURFACE_FORMAT_MAP.at(colorFormat);
+    const mango::image::Format &outputFormat = resize
+        ? RESIZE_SURFACE_FORMAT_MAP.at(colorFormat)
+        : SURFACE_FORMAT_MAP.at(colorFormat);
 
     size_t outputSurfaceStride = stride;
     SURFACE_IMAGE_POINTER outputSurfaceImagePointer = nullptr;
 
     if (resize) {
-        outputSurfaceStride = (size_t)m4Image.width * (size_t)OUTPUT_FORMAT.bytes();
-        outputSurfaceImagePointer = SURFACE_IMAGE_POINTER((mango::u8*)M4Image::allocator.mallocSafe(outputSurfaceStride * (size_t)m4Image.height));
+        outputSurfaceStride = (size_t)m4Image.width * (size_t)outputFormat.bytes();
+
+        outputSurfaceImagePointer = SURFACE_IMAGE_POINTER(
+            (mango::u8*)M4Image::allocator.mallocSafe(outputSurfaceStride
+            * (size_t)m4Image.height)
+        );
     }
 
     // the resize is not done here, so the input width and height is used for the output surface
-    const mango::image::Surface OUTPUT_SURFACE(
+    const mango::image::Surface outputSurface(
         m4Image.width, m4Image.height,
-        OUTPUT_FORMAT, outputSurfaceStride,
+        outputFormat, outputSurfaceStride,
         outputSurfaceImagePointer ? outputSurfaceImagePointer.get() : imagePointer
     );
     
@@ -816,27 +874,33 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
     }
 
     try {
-        blitSurfaceImage(INPUT_SURFACE, OUTPUT_SURFACE, linear, resize);
+        blitSurfaceImage(inputSurface, outputSurface, linear, resize);
     } catch (const mango::Exception&) {
-        throw std::runtime_error("Failed to Blit Surface Image");
+        throw std::runtime_error("failed to blit surface image");
     }
 
     // for our purposes, if the image is opaque, it is as if the image were premultiplied
     if (resize) {
         resizeImage(
-            OUTPUT_SURFACE,
+            outputSurface,
             width,
             height,
             stride,
             colorFormat,
             imagePointer,
             linear,
-            premultiplied || !INPUT_SURFACE.format.isAlpha()
+            premultiplied || !inputSurface.format.isAlpha()
         );
     }
 }
 
-void M4Image::load(const unsigned char* pointer, size_t size, const char* extension, bool &linear, bool &premultiplied) {
+void M4Image::load(
+    const unsigned char* pointer,
+    size_t size,
+    const char* extension,
+    bool &linear,
+    bool &premultiplied
+) {
     MAKE_SCOPE_EXIT(linearScopeExit) {
         linear = false;
     };
@@ -860,7 +924,7 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
     mango::image::ImageDecoder imageDecoder(mango::ConstMemory(pointer, size), extension);
 
     if (!imageDecoder.isDecoder()) {
-        throw std::logic_error("No Decoder");
+        throw std::logic_error("no decoder");
     }
 
     mango::image::ImageHeader imageHeader = imageDecoder.header();
@@ -869,20 +933,26 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
     premultiplied = imageHeader.premultiplied;
     bool resize = width != imageHeader.width || height != imageHeader.height;
 
-    const mango::image::Format &SURFACE_FORMAT = resize ? RESIZE_SURFACE_FORMAT_MAP.at(colorFormat) : SURFACE_FORMAT_MAP.at(colorFormat);
+    const mango::image::Format &surfaceFormat = resize
+        ? RESIZE_SURFACE_FORMAT_MAP.at(colorFormat)
+        : SURFACE_FORMAT_MAP.at(colorFormat);
 
     size_t surfaceStride = stride;
     SURFACE_IMAGE_POINTER surfaceImagePointer = nullptr;
 
     // if we're resizing, create a buffer that recieves the originally sized image
     if (resize) {
-        surfaceStride = (size_t)imageHeader.width * (size_t)SURFACE_FORMAT.bytes();
-        surfaceImagePointer = SURFACE_IMAGE_POINTER((mango::u8*)M4Image::allocator.mallocSafe(surfaceStride * (size_t)imageHeader.height));
+        surfaceStride = (size_t)imageHeader.width * (size_t)surfaceFormat.bytes();
+
+        surfaceImagePointer = SURFACE_IMAGE_POINTER(
+            (mango::u8*)M4Image::allocator.mallocSafe(surfaceStride
+            * (size_t)imageHeader.height)
+        );
     }
 
-    const mango::image::Surface SURFACE(
+    const mango::image::Surface surface(
         imageHeader.width, imageHeader.height,
-        SURFACE_FORMAT, surfaceStride,
+        surfaceFormat, surfaceStride,
         surfaceImagePointer ? surfaceImagePointer.get() : imagePointer
     );
 
@@ -892,18 +962,19 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
 
     // scope for temporary luminance surface stuff
     {
-        bool isLuminance = SURFACE_FORMAT.isLuminance();
+        bool isLuminance = surfaceFormat.isLuminance();
 
         // LuminanceBitmap uses RGBA natively, so import to that if the blit format is luminance
-        const mango::image::Format &LUMINANCE_SURFACE_FORMAT = isLuminance
+        const mango::image::Format &luminanceSurfaceFormat = isLuminance
             ? SURFACE_FORMAT_RGBA
-            : SURFACE_FORMAT;
+            : surfaceFormat;
 
-        size_t luminanceSurfaceStride = SURFACE.stride;
+        size_t luminanceSurfaceStride = surface.stride;
         SURFACE_IMAGE_POINTER luminanceSurfaceImagePointer = nullptr;
 
         if (isLuminance) {
-            luminanceSurfaceStride = (size_t)imageHeader.width * (size_t)LUMINANCE_SURFACE_FORMAT.bytes();
+            luminanceSurfaceStride = (size_t)imageHeader.width
+                * (size_t)luminanceSurfaceFormat.bytes();
 
             // if we are dealing with luminance
             // there will always be a LuminanceBitmap intermediary
@@ -913,7 +984,10 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
             // we should only allocate this if it needs to be a different size
             // like RGBA to L for example
             if (luminanceSurfaceStride != surfaceStride) {
-                luminanceSurfaceImagePointer = SURFACE_IMAGE_POINTER((mango::u8*)M4Image::allocator.mallocSafe(luminanceSurfaceStride * (size_t)imageHeader.height));
+                luminanceSurfaceImagePointer = SURFACE_IMAGE_POINTER(
+                    (mango::u8*)M4Image::allocator.mallocSafe(luminanceSurfaceStride
+                    * (size_t)imageHeader.height)
+                );
             }
         }
 
@@ -921,17 +995,20 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
             decodeSurfaceImage(
                 mango::image::Surface(
                     imageHeader.width, imageHeader.height,
-                    LUMINANCE_SURFACE_FORMAT, luminanceSurfaceStride,
-                    luminanceSurfaceImagePointer ? luminanceSurfaceImagePointer.get() : SURFACE.image
+                    luminanceSurfaceFormat, luminanceSurfaceStride,
+                    
+                    luminanceSurfaceImagePointer
+                    ? luminanceSurfaceImagePointer.get()
+                    : surface.image
                 ),
 
-                SURFACE,
+                surface,
                 imageDecoder,
                 resizeLinear,
                 resize
             );
         } catch (const mango::Exception&) {
-            throw std::runtime_error("Failed to Decode Surface Image");
+            throw std::runtime_error("failed to decode surface image");
         }
     }
 
@@ -939,7 +1016,7 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
     // however the caller should not get to know this
     if (resize) {
         resizeImage(
-            SURFACE,
+            surface,
             width,
             height,
             stride,
@@ -954,12 +1031,21 @@ void M4Image::load(const unsigned char* pointer, size_t size, const char* extens
     linearScopeExit.dismiss();
 }
 
-void M4Image::load(const unsigned char* pointer, size_t size, const char* extension, bool &linear) {
+void M4Image::load(
+    const unsigned char* pointer,
+    size_t size,
+    const char* extension,
+    bool &linear
+) {
     bool premultiplied = false;
     load(pointer, size, extension, linear, premultiplied);
 }
 
-void M4Image::load(const unsigned char* pointer, size_t size, const char* extension) {
+void M4Image::load(
+    const unsigned char* pointer,
+    size_t size,
+    const char* extension
+) {
     bool linear = false;
     load(pointer, size, extension, linear);
 }
@@ -992,7 +1078,7 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
             quality
         );
     } catch (const mango::Exception&) {
-        throw std::runtime_error("Failed to Encode Surface Image");
+        throw std::runtime_error("failed to encode surface image");
     }
 
     sizeScopeExit.dismiss();
@@ -1005,7 +1091,13 @@ unsigned char* M4Image::acquire() {
     return imagePointer;
 }
 
-void M4Image::create(int width, int height, size_t &stride, COLOR_FORMAT colorFormat, unsigned char* imagePointer) {
+void M4Image::create(
+    int width,
+    int height,
+    size_t &stride,
+    COLOR_FORMAT colorFormat,
+    unsigned char* imagePointer
+) {
     if (!width || !height) {
         throw std::invalid_argument("width and height must not be zero");
     }

@@ -71,7 +71,7 @@ class M4Image {
         // by default the allocator will use aligned malloc
         // for SIMD it is best when allocations are aligned
         // (though this is not required)
-        static const size_t ALIGNMENT = 64;
+        static constexpr size_t ALIGNMENT = 64;
 
         inline static void* M4IMAGE_CALL malloc(size_t size) {
             return _aligned_malloc(size, ALIGNMENT);
@@ -137,13 +137,38 @@ class M4Image {
         bool* premultipliedPointer = 0
     );
 
-    M4IMAGE_API M4Image(int width, int height, size_t &stride, COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA, unsigned char* imagePointer = 0);
+    M4IMAGE_API M4Image(
+        int width, int height,
+        size_t &stride,
+        COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA,
+        unsigned char* imagePointer = 0
+    );
+
     M4IMAGE_API M4Image(int width, int height);
     M4IMAGE_API ~M4Image();
     M4IMAGE_API void M4IMAGE_CALL blit(const M4Image &m4Image, bool linear = false, bool premultiplied = false);
-    M4IMAGE_API void M4IMAGE_CALL load(const unsigned char* pointer, size_t size, const char* extension, bool &linear, bool &premultiplied);
-    M4IMAGE_API void M4IMAGE_CALL load(const unsigned char* pointer, size_t size, const char* extension, bool &linear);
-    M4IMAGE_API void M4IMAGE_CALL load(const unsigned char* pointer, size_t size, const char* extension = 0);
+
+    M4IMAGE_API void M4IMAGE_CALL load(
+        const unsigned char* pointer,
+        size_t size,
+        const char* extension,
+        bool &linear,
+        bool &premultiplied
+    );
+
+    M4IMAGE_API void M4IMAGE_CALL load(
+        const unsigned char* pointer,
+        size_t size,
+        const char* extension,
+        bool &linear
+    );
+
+    M4IMAGE_API void M4IMAGE_CALL load(
+        const unsigned char* pointer,
+        size_t size,
+        const char* extension = 0
+    );
+
     M4IMAGE_API unsigned char* M4IMAGE_CALL save(size_t &size, const char* extension = 0, float quality = 0.90f) const;
     M4IMAGE_API unsigned char* M4IMAGE_CALL acquire();
 
@@ -161,7 +186,14 @@ class M4Image {
     }
 
     private:
-    void M4IMAGE_CALL create(int width, int height, size_t &stride, COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA, unsigned char* imagePointer = 0);
+    void M4IMAGE_CALL create(
+        int width,
+        int height,
+        size_t &stride,
+        COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA,
+        unsigned char* imagePointer = 0
+    );
+
     void M4IMAGE_CALL destroy();
 
     int width = 0;
