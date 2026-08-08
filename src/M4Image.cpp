@@ -447,9 +447,7 @@ unsigned char* encodeSurfaceImage(
     size_t &size,
     float quality = 0.90f
 ) {
-    MAKE_SCOPE_EXIT(sizeScopeExit) {
-        size = 0;
-    };
+    size = 0;
 
     AllocatorStream allocatorStream;
 
@@ -467,8 +465,6 @@ unsigned char* encodeSurfaceImage(
     if (!bits) {
         throw std::bad_alloc();
     }
-
-    sizeScopeExit.dismiss();
     return bits;
 }
 
@@ -644,7 +640,7 @@ void resizeImage(
 
     size_t resizedBitsStride = stride;
 
-    BITS_POINTER resizedBitsPointer = 0;
+    BITS_POINTER resizedBitsPointer = nullptr;
     unsigned char* resizedBits = imagePointer;
 
     // if we can write the colours then just swap them in the same space
@@ -865,7 +861,10 @@ void M4Image::blit(const M4Image &m4Image, bool linear, bool premultiplied) {
     const mango::image::Surface outputSurface(
         m4Image.width, m4Image.height,
         outputFormat, outputSurfaceStride,
-        outputSurfaceImagePointer ? outputSurfaceImagePointer.get() : imagePointer
+
+        outputSurfaceImagePointer
+        ? outputSurfaceImagePointer.get()
+        : imagePointer
     );
     
     // if we're getting alpha only, linearizing it is pointless
@@ -901,13 +900,8 @@ void M4Image::load(
     bool &linear,
     bool &premultiplied
 ) {
-    MAKE_SCOPE_EXIT(linearScopeExit) {
-        linear = false;
-    };
-
-    MAKE_SCOPE_EXIT(premultipliedScopeExit) {
-        premultiplied = false;
-    };
+    linear = false;
+    premultiplied = false;
 
     if (!imagePointer) {
         throw Invalid();
@@ -953,12 +947,17 @@ void M4Image::load(
     const mango::image::Surface surface(
         imageHeader.width, imageHeader.height,
         surfaceFormat, surfaceStride,
-        surfaceImagePointer ? surfaceImagePointer.get() : imagePointer
+
+        surfaceImagePointer
+        ? surfaceImagePointer.get()
+        : imagePointer
     );
 
     // if we want alpha only, there is no point in linearizing so skip it
     // however, the caller should not know about this
-    bool resizeLinear = colorFormat == M4Image::COLOR_FORMAT::A ? true : linear;
+    bool resizeLinear = colorFormat == M4Image::COLOR_FORMAT::A
+        ? true
+        : linear;
 
     // scope for temporary luminance surface stuff
     {
@@ -1026,9 +1025,6 @@ void M4Image::load(
             premultiplied || !imageHeader.format.isAlpha()
         );
     }
-
-    premultipliedScopeExit.dismiss();
-    linearScopeExit.dismiss();
 }
 
 void M4Image::load(
@@ -1050,10 +1046,12 @@ void M4Image::load(
     load(pointer, size, extension, linear);
 }
 
-unsigned char* M4Image::save(size_t &size, const char* extension, float quality) const {
-    MAKE_SCOPE_EXIT(sizeScopeExit) {
-        size = 0;
-    };
+unsigned char* M4Image::save(
+    size_t &size,
+    const char* extension,
+    float quality
+) const {
+    size = 0;
 
     if (!imagePointer) {
         throw Invalid();
@@ -1063,7 +1061,7 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
         extension = ".";
     }
 
-    unsigned char* bits = 0;
+    unsigned char* bits = nullptr;
 
     try {
         bits = encodeSurfaceImage(
@@ -1080,14 +1078,12 @@ unsigned char* M4Image::save(size_t &size, const char* extension, float quality)
     } catch (const mango::Exception&) {
         throw std::runtime_error("failed to encode surface image");
     }
-
-    sizeScopeExit.dismiss();
     return bits;
 }
 
 unsigned char* M4Image::acquire() {
     unsigned char* imagePointer = this->imagePointer;
-    this->imagePointer = 0;
+    this->imagePointer = nullptr;
     return imagePointer;
 }
 

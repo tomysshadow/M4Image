@@ -47,7 +47,7 @@ class M4Image {
         inline void M4IMAGE_CALL freeSafe(Block* &block) const {
             if (block) {
                 freeProc(block);
-                block = 0;
+                block = nullptr;
             }
         }
 
@@ -128,20 +128,20 @@ class M4Image {
     M4IMAGE_API static void M4IMAGE_CALL getInfo(
         const unsigned char* pointer,
         size_t size,
-        const char* extension = 0,
-        bool* isAlphaPointer = 0,
-        uint32_t* bitsPointer = 0,
-        int* widthPointer = 0,
-        int* heightPointer = 0,
-        bool* linearPointer = 0,
-        bool* premultipliedPointer = 0
+        const char* extension = nullptr,
+        bool* isAlphaPointer = nullptr,
+        uint32_t* bitsPointer = nullptr,
+        int* widthPointer = nullptr,
+        int* heightPointer = nullptr,
+        bool* linearPointer = nullptr,
+        bool* premultipliedPointer = nullptr
     );
 
     M4IMAGE_API M4Image(
         int width, int height,
         size_t &stride,
         COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA,
-        unsigned char* imagePointer = 0
+        unsigned char* imagePointer = nullptr
     );
 
     M4IMAGE_API M4Image(int width, int height);
@@ -166,10 +166,15 @@ class M4Image {
     M4IMAGE_API void M4IMAGE_CALL load(
         const unsigned char* pointer,
         size_t size,
-        const char* extension = 0
+        const char* extension = nullptr
     );
 
-    M4IMAGE_API unsigned char* M4IMAGE_CALL save(size_t &size, const char* extension = 0, float quality = 0.90f) const;
+    M4IMAGE_API unsigned char* M4IMAGE_CALL save(
+        size_t &size,
+        const char* extension = nullptr,
+        float quality = 0.90f
+    ) const;
+
     M4IMAGE_API unsigned char* M4IMAGE_CALL acquire();
 
     // ignore this method
@@ -191,7 +196,7 @@ class M4Image {
         int height,
         size_t &stride,
         COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA,
-        unsigned char* imagePointer = 0
+        unsigned char* imagePointer = nullptr
     );
 
     void M4IMAGE_CALL destroy();
@@ -200,6 +205,6 @@ class M4Image {
     int height = 0;
     size_t stride = 0;
     COLOR_FORMAT colorFormat = COLOR_FORMAT::RGBA;
-    unsigned char* imagePointer = 0;
+    unsigned char* imagePointer = nullptr;
     bool owner = false;
 };
