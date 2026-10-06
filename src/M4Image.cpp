@@ -394,7 +394,7 @@ void blitSurfaceImage(
     }
 
     const mango::image::Surface &sourceSurface = luminanceBitmapOptional.has_value()
-        ? luminanceBitmapOptional.value()
+        ? *luminanceBitmapOptional
         : inputSurface;
 
     // if we're forced to do a blit because they don't match, do it
